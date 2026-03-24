@@ -1,5 +1,3 @@
-
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -7,10 +5,10 @@
 
 struct FWeaveNodeDecl
 {
-	FString NodeId;      
-	FString SchemaId;    
-	FVector2D Position;  
-	TMap<FString, FString> InlineProps;  
+	FString NodeId;
+	FString SchemaId;
+	FVector2D Position;
+	TMap<FString, FString> InlineProps;
 };
 
 struct FWeaveSetStmt
@@ -30,14 +28,14 @@ struct FWeaveLinkStmt
 
 struct FWeaveVarDecl
 {
-	FString VarName;  
-	FString VarType;  
+	FString VarName;
+	FString VarType;
 };
 
 struct FWeaveAST
 {
-	FString BlueprintPath;  
-	FString GraphName;  
+	FString BlueprintPath;
+	FString GraphName;
 	TArray<FWeaveVarDecl> Vars;
 	TArray<FWeaveNodeDecl> Nodes;
 	TArray<FWeaveSetStmt> Sets;
@@ -47,33 +45,30 @@ struct FWeaveAST
 class WEAVELANGUAGE_API FWeaveInterpreter
 {
 public:
-	
 	static bool Parse(const FString& WeaveCode, FWeaveAST& OutAST, FString& OutError);
-	
-	
+
+
 	static int32 GenerateBlueprint(const FWeaveAST& AST, class UEdGraph* Graph, FString& OutError);
 
 private:
-	
 	static TArray<FString> Tokenize(const FString& Code);
-	
-	
+
+
 	static bool ParseGraph(const TArray<FString>& Tokens, int32& Index, FString& OutGraphName);
-	
-	
+
+
 	static bool ParseNode(const TArray<FString>& Tokens, int32& Index, FWeaveNodeDecl& OutNode);
-	
-	
+
+
 	static bool ParseSet(const TArray<FString>& Tokens, int32& Index, FWeaveSetStmt& OutSet);
-	
-	
+
+
 	static bool ParseLink(const TArray<FString>& Tokens, int32& Index, FWeaveLinkStmt& OutLink);
-	
-	
+
+
 	static bool ParseVar(const TArray<FString>& Tokens, int32& Index, FWeaveVarDecl& OutVar);
-	
-	
-	
+
+
 	static UK2Node* CreateEventNode(UEdGraph* Graph, const FString& ClassName, const FString& EventName);
 	static UK2Node* CreateCallNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName);
 	static UK2Node* CreateMacroNode(UEdGraph* Graph, const FString& MacroPath, const FString& MacroName);

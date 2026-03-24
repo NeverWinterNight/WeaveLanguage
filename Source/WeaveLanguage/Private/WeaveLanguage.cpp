@@ -1,6 +1,3 @@
-
-
-
 #include "WeaveLanguage.h"
 #include "Slate/SWeaverDebugger.h"
 #include "Framework/Application/SlateApplication.h"
@@ -13,7 +10,8 @@
 
 void FWeaveLanguageModule::StartupModule()
 {
-	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FWeaveLanguageModule::RegisterMenus));
+	UToolMenus::RegisterStartupCallback(
+		FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FWeaveLanguageModule::RegisterMenus));
 	FCoreDelegates::OnPostEngineInit.AddLambda([]()
 	{
 		if (GEditor)
@@ -36,12 +34,12 @@ void FWeaveLanguageModule::ShutdownModule()
 void FWeaveLanguageModule::RegisterMenus()
 {
 	FToolMenuOwnerScoped OwnerScoped(this);
-	
-	
+
+
 	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.MainMenu");
 	FToolMenuSection& Section = Menu->AddSection("Weaver", LOCTEXT("Weaver", "Weaver"));
-	
-	
+
+
 	Section.AddSubMenu(
 		"WeaverMenu",
 		LOCTEXT("WeaverMenu", "Weaver"),
@@ -78,12 +76,12 @@ void FWeaveLanguageModule::OnOpenDebugger()
 		.SupportsMaximize(true)
 		.SupportsMinimize(true)
 		.IsTopmostWindow(true);
-	
+
 	Window->SetContent(SNew(SWeaverDebugger));
-	
+
 	FSlateApplication::Get().AddWindow(Window);
 }
 
 #undef LOCTEXT_NAMESPACE
-	
+
 IMPLEMENT_MODULE(FWeaveLanguageModule, Weaver)

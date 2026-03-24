@@ -1,5 +1,3 @@
-
-
 #include "Core/WeaveInterpreter.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
@@ -32,21 +30,21 @@ bool FWeaveInterpreter::Parse(const FString& WeaveCode, FWeaveAST& OutAST, FStri
 		OutError = TEXT("Empty code");
 		return false;
 	}
-	
+
 	int32 Index = 0;
-	
-	
+
+
 	if (Index < Tokens.Num() && Tokens[Index] == TEXT("graphset"))
 	{
-		Index++; 
+		Index++;
 		if (Index >= Tokens.Num())
 		{
 			OutError = TEXT("Missing blueprint name after graphset");
 			return false;
 		}
-		Index++; 
-		
-		
+		Index++;
+
+
 		FString Path;
 		while (Index < Tokens.Num() && Tokens[Index] != TEXT("graph"))
 		{
@@ -54,17 +52,17 @@ bool FWeaveInterpreter::Parse(const FString& WeaveCode, FWeaveAST& OutAST, FStri
 		}
 		OutAST.BlueprintPath = Path;
 	}
-	
+
 	if (!ParseGraph(Tokens, Index, OutAST.GraphName))
 	{
 		OutError = TEXT("Failed to parse graph declaration");
 		return false;
 	}
-	
+
 	while (Index < Tokens.Num())
 	{
 		const FString& Token = Tokens[Index];
-		
+
 		if (Token == TEXT("node"))
 		{
 			FWeaveNodeDecl Node;
@@ -96,7 +94,8 @@ bool FWeaveInterpreter::Parse(const FString& WeaveCode, FWeaveAST& OutAST, FStri
 			if (Link.FromNode == Link.ToNode)
 			{
 				OutError = FString::Printf(
-					TEXT("自连死循环：节点 '%s' 的输出引脚 '%s' 连接到自身的输入引脚 '%s'。执行引脚自连会让蓝图在该节点永远循环，永远无法继续执行后续逻辑。请改为连接到其他节点，或删除此 link 语句。"),
+					TEXT(
+						"自连死循环：节点 '%s' 的输出引脚 '%s' 连接到自身的输入引脚 '%s'。执行引脚自连会让蓝图在该节点永远循环，永远无法继续执行后续逻辑。请改为连接到其他节点，或删除此 link 语句。"),
 					*Link.FromNode, *Link.FromPin, *Link.ToPin);
 				return false;
 			}
@@ -117,7 +116,7 @@ bool FWeaveInterpreter::Parse(const FString& WeaveCode, FWeaveAST& OutAST, FStri
 			Index++;
 		}
 	}
-	
+
 	return true;
 }
 
@@ -127,12 +126,12 @@ TArray<FString> FWeaveInterpreter::Tokenize(const FString& Code)
 	FString Current;
 	bool InString = false;
 	bool InComment = false;
-	
+
 	for (int32 i = 0; i < Code.Len(); i++)
 	{
 		TCHAR Ch = Code[i];
-		
-		
+
+
 		if (Ch == TEXT('#') && !InString)
 		{
 			InComment = true;
@@ -143,7 +142,7 @@ TArray<FString> FWeaveInterpreter::Tokenize(const FString& Code)
 			}
 			continue;
 		}
-		
+
 		if (InComment)
 		{
 			if (Ch == TEXT('\n') || Ch == TEXT('\r'))
@@ -152,10 +151,9 @@ TArray<FString> FWeaveInterpreter::Tokenize(const FString& Code)
 			}
 			continue;
 		}
-		
+
 		if (InString)
 		{
-			
 			if (Ch == TEXT('\\') && i + 1 < Code.Len() && Code[i + 1] == TEXT('"'))
 			{
 				Current.AppendChar(TEXT('"'));
@@ -188,7 +186,8 @@ TArray<FString> FWeaveInterpreter::Tokenize(const FString& Code)
 				Current.Empty();
 			}
 		}
-		else if (Ch == TEXT(':') || Ch == TEXT('=') || Ch == TEXT('.') || Ch == TEXT('(') || Ch == TEXT(')') || Ch == TEXT(',') || Ch == TEXT('@'))
+		else if (Ch == TEXT(':') || Ch == TEXT('=') || Ch == TEXT('.') || Ch == TEXT('(') || Ch == TEXT(')') || Ch ==
+			TEXT(',') || Ch == TEXT('@'))
 		{
 			if (!Current.IsEmpty())
 			{
@@ -212,12 +211,12 @@ TArray<FString> FWeaveInterpreter::Tokenize(const FString& Code)
 			Current.AppendChar(Ch);
 		}
 	}
-	
+
 	if (!Current.IsEmpty())
 	{
 		Tokens.Add(Current);
 	}
-	
+
 	return Tokens;
 }
 
@@ -228,118 +227,119 @@ bool FWeaveInterpreter::ParseGraph(const TArray<FString>& Tokens, int32& Index, 
 		return false;
 	}
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
-	
+
 	OutGraphName = Tokens[Index];
 	Index++;
-	
+
 	return true;
 }
 
 bool FWeaveInterpreter::ParseNode(const TArray<FString>& Tokens, int32& Index, FWeaveNodeDecl& OutNode)
 {
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
-	
+
 	OutNode.NodeId = Tokens[Index++];
-	
+
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT(":"))
 	{
 		return false;
 	}
 	Index++;
-	
-	
+
+
 	FString SchemaId;
-	while (Index < Tokens.Num() && Tokens[Index] != TEXT("@") && Tokens[Index] != TEXT("node") && Tokens[Index] != TEXT("set") && Tokens[Index] != TEXT("link"))
+	while (Index < Tokens.Num() && Tokens[Index] != TEXT("@") && Tokens[Index] != TEXT("node") && Tokens[Index] !=
+		TEXT("set") && Tokens[Index] != TEXT("link"))
 	{
 		SchemaId += Tokens[Index++];
 	}
 	OutNode.SchemaId = SchemaId.TrimStartAndEnd();
-	
+
 	if (Index < Tokens.Num() && Tokens[Index] == TEXT("@"))
 	{
 		Index++;
-		
+
 		if (Index >= Tokens.Num() || Tokens[Index] != TEXT("("))
 		{
 			return false;
 		}
 		Index++;
-		
+
 		if (Index >= Tokens.Num())
 		{
 			return false;
 		}
 		float X = FCString::Atof(*Tokens[Index++]);
-		
+
 		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(","))
 		{
 			return false;
 		}
 		Index++;
-		
+
 		if (Index >= Tokens.Num())
 		{
 			return false;
 		}
 		float Y = FCString::Atof(*Tokens[Index++]);
-		
+
 		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(")"))
 		{
 			return false;
 		}
 		Index++;
-		
+
 		OutNode.Position = FVector2D(X, Y);
 	}
 	else
 	{
 		OutNode.Position = FVector2D::ZeroVector;
 	}
-	
+
 	return true;
 }
 
 bool FWeaveInterpreter::ParseSet(const TArray<FString>& Tokens, int32& Index, FWeaveSetStmt& OutSet)
 {
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
-	
+
 	OutSet.NodeId = Tokens[Index++];
-	
+
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("."))
 	{
 		return false;
 	}
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
 	OutSet.PinName = Tokens[Index++];
-	
+
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("="))
 	{
 		return false;
 	}
 	Index++;
-	
+
 	FString Value;
-	
+
 	if (Index < Tokens.Num() && Tokens[Index].StartsWith(TEXT("\"")))
 	{
 		Value = Tokens[Index++];
@@ -349,7 +349,8 @@ bool FWeaveInterpreter::ParseSet(const TArray<FString>& Tokens, int32& Index, FW
 		while (Index < Tokens.Num())
 		{
 			const FString& Token = Tokens[Index];
-			if (Token == TEXT("node") || Token == TEXT("set") || Token == TEXT("link") || Token == TEXT("graph") || Token == TEXT("graphset") || Token == TEXT("var"))
+			if (Token == TEXT("node") || Token == TEXT("set") || Token == TEXT("link") || Token == TEXT("graph") ||
+				Token == TEXT("graphset") || Token == TEXT("var"))
 			{
 				break;
 			}
@@ -365,77 +366,77 @@ bool FWeaveInterpreter::ParseSet(const TArray<FString>& Tokens, int32& Index, FW
 bool FWeaveInterpreter::ParseLink(const TArray<FString>& Tokens, int32& Index, FWeaveLinkStmt& OutLink)
 {
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
-	
+
 	OutLink.FromNode = Tokens[Index++];
-	
+
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("."))
 	{
 		return false;
 	}
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
 	OutLink.FromPin = Tokens[Index++];
-	
+
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("->"))
 	{
 		return false;
 	}
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
 	OutLink.ToNode = Tokens[Index++];
-	
+
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("."))
 	{
 		return false;
 	}
 	Index++;
-	
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
 	OutLink.ToPin = Tokens[Index++];
-	
+
 	return true;
 }
 
 bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FWeaveVarDecl& OutVar)
 {
-	Index++; 
-	
+	Index++;
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
-	
+
 	OutVar.VarName = Tokens[Index++];
-	
+
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT(":"))
 	{
 		return false;
 	}
-	Index++; 
-	
+	Index++;
+
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
-	
+
 	OutVar.VarType = Tokens[Index++];
-	
+
 	return true;
 }
 
@@ -447,16 +448,17 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		OutError = TEXT("Invalid graph");
 		return 0;
 	}
-	
+
 	UE_LOG(LogTemp, Log, TEXT("[Weaver] Generating blueprint for graph: %s"), *AST.GraphName);
-	UE_LOG(LogTemp, Log, TEXT("[Weaver] Vars: %d, Nodes: %d, Sets: %d, Links: %d"), AST.Vars.Num(), AST.Nodes.Num(), AST.Sets.Num(), AST.Links.Num());
-	
-	
+	UE_LOG(LogTemp, Log, TEXT("[Weaver] Vars: %d, Nodes: %d, Sets: %d, Links: %d"), AST.Vars.Num(), AST.Nodes.Num(),
+	       AST.Sets.Num(), AST.Links.Num());
+
+
 	FString FunctionEventNodeId;
-	bool bIsFunctionGraph = (AST.GraphName == TEXT("UserConstructionScript") || 
-	                         Graph->GetName().Contains(TEXT("UserConstructionScript")) ||
-	                         !AST.GraphName.Contains(TEXT("EventGraph")));
-	
+	bool bIsFunctionGraph = (AST.GraphName == TEXT("UserConstructionScript") ||
+		Graph->GetName().Contains(TEXT("UserConstructionScript")) ||
+		!AST.GraphName.Contains(TEXT("EventGraph")));
+
 	if (bIsFunctionGraph)
 	{
 		for (const FWeaveNodeDecl& NodeDecl : AST.Nodes)
@@ -469,14 +471,13 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			}
 		}
 	}
-	
-	
+
+
 	UBlueprint* Blueprint = Cast<UBlueprint>(Graph->GetOuter());
 	if (Blueprint && AST.Vars.Num() > 0)
 	{
 		for (const FWeaveVarDecl& VarDecl : AST.Vars)
 		{
-			
 			bool bExists = false;
 			for (const FBPVariableDescription& Var : Blueprint->NewVariables)
 			{
@@ -486,24 +487,27 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					break;
 				}
 			}
-			
+
 			if (!bExists)
 			{
 				FEdGraphPinType PinType;
 				bool bTypeResolved = false;
 
-				
+
 				if (VarDecl.VarType == TEXT("bool"))
 				{
-					PinType.PinCategory = UEdGraphSchema_K2::PC_Boolean; bTypeResolved = true;
+					PinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
+					bTypeResolved = true;
 				}
 				else if (VarDecl.VarType == TEXT("int"))
 				{
-					PinType.PinCategory = UEdGraphSchema_K2::PC_Int; bTypeResolved = true;
+					PinType.PinCategory = UEdGraphSchema_K2::PC_Int;
+					bTypeResolved = true;
 				}
 				else if (VarDecl.VarType == TEXT("int64"))
 				{
-					PinType.PinCategory = UEdGraphSchema_K2::PC_Int64; bTypeResolved = true;
+					PinType.PinCategory = UEdGraphSchema_K2::PC_Int64;
+					bTypeResolved = true;
 				}
 				else if (VarDecl.VarType == TEXT("float"))
 				{
@@ -519,22 +523,26 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				}
 				else if (VarDecl.VarType == TEXT("string"))
 				{
-					PinType.PinCategory = UEdGraphSchema_K2::PC_String; bTypeResolved = true;
+					PinType.PinCategory = UEdGraphSchema_K2::PC_String;
+					bTypeResolved = true;
 				}
 				else if (VarDecl.VarType == TEXT("text"))
 				{
-					PinType.PinCategory = UEdGraphSchema_K2::PC_Text; bTypeResolved = true;
+					PinType.PinCategory = UEdGraphSchema_K2::PC_Text;
+					bTypeResolved = true;
 				}
 				else if (VarDecl.VarType == TEXT("name"))
 				{
-					PinType.PinCategory = UEdGraphSchema_K2::PC_Name; bTypeResolved = true;
+					PinType.PinCategory = UEdGraphSchema_K2::PC_Name;
+					bTypeResolved = true;
 				}
 				else if (VarDecl.VarType == TEXT("byte"))
 				{
-					PinType.PinCategory = UEdGraphSchema_K2::PC_Byte; bTypeResolved = true;
+					PinType.PinCategory = UEdGraphSchema_K2::PC_Byte;
+					bTypeResolved = true;
 				}
 
-				
+
 				if (!bTypeResolved)
 				{
 					for (TObjectIterator<UScriptStruct> It; It; ++It)
@@ -549,7 +557,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 				}
 
-				
+
 				if (!bTypeResolved)
 				{
 					for (TObjectIterator<UEnum> It; It; ++It)
@@ -564,7 +572,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 				}
 
-				
+
 				if (!bTypeResolved)
 				{
 					for (TObjectIterator<UClass> It; It; ++It)
@@ -579,11 +587,11 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 				}
 
-				
+
 				if (!bTypeResolved && VarDecl.VarType.StartsWith(TEXT("class:")))
 				{
 					FString ClassName = VarDecl.VarType.Mid(6);
-					
+
 					if (ClassName.StartsWith(TEXT("/")))
 					{
 						if (UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *ClassName))
@@ -598,7 +606,6 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 					else
 					{
-						 
 						for (TObjectIterator<UClass> It; It; ++It)
 						{
 							if (It->GetPrefixCPP() + It->GetName() == ClassName)
@@ -612,7 +619,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 				}
 
-				 
+
 				if (!bTypeResolved && VarDecl.VarType.StartsWith(TEXT("/")))
 				{
 					if (UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *VarDecl.VarType))
@@ -628,59 +635,59 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 				if (!bTypeResolved)
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[Weaver] Unknown variable type: %s. Use SearchType to find valid names."), *VarDecl.VarType);
+					UE_LOG(LogTemp, Warning,
+					       TEXT("[Weaver] Unknown variable type: %s. Use SearchType to find valid names."),
+					       *VarDecl.VarType);
 					if (!OutError.IsEmpty()) OutError += TEXT("\n");
 					OutError += FString::Printf(
 						TEXT("var %s : %s 失败：未知类型 '%s'，请先调用 SearchType 查询正确的类型名称。"),
 						*VarDecl.VarName, *VarDecl.VarType, *VarDecl.VarType);
 					continue;
 				}
-				
-				 
-				 
+
+
 				FName VarName = FName(*VarDecl.VarName);
 				FBlueprintEditorUtils::AddMemberVariable(Blueprint, VarName, PinType);
-				
+
 				UE_LOG(LogTemp, Log, TEXT("[Weaver] Created variable: %s (%s)"), *VarDecl.VarName, *VarDecl.VarType);
 			}
 		}
 	}
-	
-	
-	 
+
+
 	TMap<FString, UK2Node*> CreatedNodes;
 	int32 NodesCreated = 0;
-	
-	 
+
+
 	for (const FWeaveNodeDecl& NodeDecl : AST.Nodes)
 	{
-		 
 		if (!FunctionEventNodeId.IsEmpty() && NodeDecl.NodeId == FunctionEventNodeId)
 		{
 			UE_LOG(LogTemp, Log, TEXT("[Weaver] 跳过事件节点 %s，使用 entry 代替"), *NodeDecl.NodeId);
 			continue;
 		}
-		
+
 		UK2Node* NewNode = nullptr;
-		
-		 
-		 
+
+
 		TArray<FString> Parts;
 		NodeDecl.SchemaId.ParseIntoArray(Parts, TEXT("."));
-		
+
 		if (Parts.Num() < 2)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Weaver] Invalid schema ID: %s"), *NodeDecl.SchemaId);
 			if (!OutError.IsEmpty()) OutError += TEXT("\n");
-			OutError += FString::Printf(TEXT("节点 '%s' 的 schema_id '%s' 格式无效（应为 call.类名.函数名 / event.类名.事件名 / macro.宏库名.宏名 / special.类型），该节点未被创建。"), *NodeDecl.NodeId, *NodeDecl.SchemaId);
+			OutError += FString::Printf(
+				TEXT(
+					"节点 '%s' 的 schema_id '%s' 格式无效（应为 call.类名.函数名 / event.类名.事件名 / macro.宏库名.宏名 / special.类型），该节点未被创建。"),
+				*NodeDecl.NodeId, *NodeDecl.SchemaId);
 			continue;
 		}
-		
-		FString NodeKind = Parts[0];   
-		
+
+		FString NodeKind = Parts[0];
+
 		if (NodeKind == TEXT("special"))
 		{
-			 
 			FString NodeType = Parts[1];
 			if (NodeType == TEXT("Branch"))
 			{
@@ -727,45 +734,39 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Weaver] Invalid schema ID: %s"), *NodeDecl.SchemaId);
 			if (!OutError.IsEmpty()) OutError += TEXT("\n");
-			OutError += FString::Printf(TEXT("节点 '%s' 的 schema_id '%s' 格式无效（应为 call.类名.函数名 / event.类名.事件名 / macro.宏库名.宏名），该节点未被创建。"), *NodeDecl.NodeId, *NodeDecl.SchemaId);
+			OutError += FString::Printf(
+				TEXT("节点 '%s' 的 schema_id '%s' 格式无效（应为 call.类名.函数名 / event.类名.事件名 / macro.宏库名.宏名），该节点未被创建。"),
+				*NodeDecl.NodeId, *NodeDecl.SchemaId);
 			continue;
 		}
 		else
 		{
 			FString ClassName = Parts[1];
 			FString FunctionName = Parts[2];
-			
+
 			if (NodeKind == TEXT("event"))
 			{
-				 
 				NewNode = CreateEventNode(Graph, ClassName, FunctionName);
 			}
 			else if (NodeKind == TEXT("call"))
 			{
-				 
 				NewNode = CreateCallNode(Graph, ClassName, FunctionName);
 			}
 			else if (NodeKind == TEXT("macro"))
 			{
-				 
 				FString MacroPath;
 				FString MacroName;
 
 				if (ClassName == TEXT("StandardMacros"))
 				{
-					 
 					MacroPath = FString::Printf(TEXT("/Engine/EditorBlueprintResources/%s.%s"), *ClassName, *ClassName);
 					MacroName = FunctionName;
 				}
 				else
 				{
-					 
-					 
-					 
 					int32 ColonIndex;
 					if (FunctionName.FindChar(TEXT(':'), ColonIndex))
 					{
-						 
 						MacroPath = ClassName + TEXT(".") + FunctionName.Left(ColonIndex);
 						MacroName = FunctionName.Mid(ColonIndex + 1);
 					}
@@ -780,9 +781,6 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			}
 			else if (NodeKind == TEXT("VariableGet") || NodeKind == TEXT("VariableSet"))
 			{
-				 
-				 
-				 
 				bool bVarExists = false;
 				if (Blueprint)
 				{
@@ -794,7 +792,6 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 					else
 					{
-						 
 						for (const FBPVariableDescription& ExistingVar : Blueprint->NewVariables)
 						{
 							if (ExistingVar.VarName.ToString() == FunctionName)
@@ -805,12 +802,16 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 						}
 					}
 				}
-				 
+
 				if (!bVarExists)
 				{
 					for (const FWeaveVarDecl& VarDecl : AST.Vars)
 					{
-						if (VarDecl.VarName == FunctionName) { bVarExists = true; break; }
+						if (VarDecl.VarName == FunctionName)
+						{
+							bVarExists = true;
+							break;
+						}
 					}
 				}
 				if (!bVarExists)
@@ -834,27 +835,26 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				}
 			}
 		}
-		
+
 		if (NewNode)
 		{
-			 
 			NewNode->NodePosX = NodeDecl.Position.X;
 			NewNode->NodePosY = NodeDecl.Position.Y;
-			
+
 			CreatedNodes.Add(NodeDecl.NodeId, NewNode);
 			NodesCreated++;
-			
+
 			UE_LOG(LogTemp, Log, TEXT("[Weaver] Created node: %s (%s)"), *NodeDecl.NodeId, *NodeDecl.SchemaId);
 		}
 	}
-	
+
 	if (NodesCreated == 0)
 	{
 		OutError = TEXT("No nodes created");
 		return 0;
 	}
-	
-	 
+
+
 	for (const FWeaveSetStmt& Set : AST.Sets)
 	{
 		UK2Node** NodePtr = CreatedNodes.Find(Set.NodeId);
@@ -862,19 +862,21 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Weaver] Set failed: node not found (%s)"), *Set.NodeId);
 			if (!OutError.IsEmpty()) OutError += TEXT("\n");
-			OutError += FString::Printf(TEXT("set %s.%s 失败：节点 '%s' 不存在（可能因 schema_id 无效而未被创建）。"), *Set.NodeId, *Set.PinName, *Set.NodeId);
+			OutError += FString::Printf(
+				TEXT("set %s.%s 失败：节点 '%s' 不存在（可能因 schema_id 无效而未被创建）。"), *Set.NodeId, *Set.PinName, *Set.NodeId);
 			continue;
 		}
-		
+
 		UK2Node* Node = *NodePtr;
-		
-		 
+
+
 		if (Set.PinName == TEXT("Expression"))
 		{
 			if (UK2Node_MathExpression* MathNode = Cast<UK2Node_MathExpression>(Node))
 			{
 				FString FinalValue = Set.Value;
-				if (FinalValue.StartsWith(TEXT("\"")) && FinalValue.EndsWith(TEXT("\"")) && !FinalValue.Contains(TEXT("\\\"")))
+				if (FinalValue.StartsWith(TEXT("\"")) && FinalValue.EndsWith(TEXT("\"")) && !FinalValue.Contains(
+					TEXT("\\\"")))
 				{
 					FinalValue = FinalValue.Mid(1, FinalValue.Len() - 2);
 				}
@@ -883,8 +885,8 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				continue;
 			}
 		}
-		
-		 
+
+
 		if (Set.PinName == TEXT("Class"))
 		{
 			FString ClassPath = Set.Value;
@@ -892,14 +894,15 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			{
 				ClassPath = ClassPath.Mid(1, ClassPath.Len() - 2);
 			}
-			 
+
 			if (ClassPath.StartsWith(TEXT("class:")))
 			{
 				ClassPath.RemoveFromStart(TEXT("class:"));
 			}
 			if (UK2Node_SpawnActorFromClass* SpawnNode = Cast<UK2Node_SpawnActorFromClass>(Node))
 			{
-				UClass* ActorClass = StaticLoadClass(UObject::StaticClass(), nullptr, *ClassPath, nullptr, LOAD_None, nullptr);
+				UClass* ActorClass = StaticLoadClass(UObject::StaticClass(), nullptr, *ClassPath, nullptr, LOAD_None,
+				                                     nullptr);
 				if (!ActorClass)
 				{
 					FString AssetPath = ClassPath;
@@ -927,7 +930,8 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			}
 			if (UK2Node_ConstructObjectFromClass* ConstructNode = Cast<UK2Node_ConstructObjectFromClass>(Node))
 			{
-				UClass* ObjClass = StaticLoadClass(UObject::StaticClass(), nullptr, *ClassPath, nullptr, LOAD_None, nullptr);
+				UClass* ObjClass = StaticLoadClass(UObject::StaticClass(), nullptr, *ClassPath, nullptr, LOAD_None,
+				                                   nullptr);
 				if (!ObjClass)
 				{
 					FString AssetPath2 = ClassPath;
@@ -949,15 +953,16 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				}
 				else
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[Weaver] ConstructObjectFromClass: Class not found: %s"), *ClassPath);
+					UE_LOG(LogTemp, Warning, TEXT("[Weaver] ConstructObjectFromClass: Class not found: %s"),
+					       *ClassPath);
 				}
 				continue;
 			}
 		}
 
-		 
+
 		UEdGraphPin* Pin = Node->FindPin(*Set.PinName, EGPD_Input);
-		 
+
 		if (!Pin)
 		{
 			if (UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(Node))
@@ -976,22 +981,21 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				}
 			}
 		}
-		
+
 		if (!Pin)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Weaver] Set failed: pin not found (%s.%s)"), *Set.NodeId, *Set.PinName);
 			continue;
 		}
-		
-		 
+
+
 		FString FinalValue = Set.Value;
 		if (FinalValue.StartsWith(TEXT("\"")) && FinalValue.EndsWith(TEXT("\"")) && !FinalValue.Contains(TEXT("\\\"")))
 		{
 			FinalValue = FinalValue.Mid(1, FinalValue.Len() - 2);
 		}
 
-		 
-		 
+
 		{
 			TArray<FString> ValParts;
 			FinalValue.ParseIntoArray(ValParts, TEXT("."));
@@ -1010,14 +1014,14 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			}
 		}
 
-		 
+
 		if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Class)
 		{
-			 
 			FString ClassValue = FinalValue;
 			if (ClassValue.StartsWith(TEXT("class:")))
 				ClassValue.RemoveFromStart(TEXT("class:"));
-			UClass* PinClass = StaticLoadClass(UObject::StaticClass(), nullptr, *ClassValue, nullptr, LOAD_None, nullptr);
+			UClass* PinClass = StaticLoadClass(UObject::StaticClass(), nullptr, *ClassValue, nullptr, LOAD_None,
+			                                   nullptr);
 			if (!PinClass)
 			{
 				FString AssetPath = ClassValue;
@@ -1030,34 +1034,35 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			{
 				Pin->DefaultObject = PinClass;
 				Pin->DefaultValue = PinClass->GetPathName();
-				UE_LOG(LogTemp, Log, TEXT("[Weaver] Set class pin: %s.%s = %s"), *Set.NodeId, *Set.PinName, *PinClass->GetName());
+				UE_LOG(LogTemp, Log, TEXT("[Weaver] Set class pin: %s.%s = %s"), *Set.NodeId, *Set.PinName,
+				       *PinClass->GetName());
 			}
 			else
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Set failed: class not found %s.%s = %s"), *Set.NodeId, *Set.PinName, *FinalValue);
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Set failed: class not found %s.%s = %s"), *Set.NodeId,
+				       *Set.PinName, *FinalValue);
 			}
 		}
 		else
 		{
-			 
-			 
 			const bool bIsObjectPin = (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Object
 				|| Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Interface
 				|| Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_SoftObject);
 			if (bIsObjectPin)
 			{
 				FString Lower = FinalValue.ToLower();
-				 
-				
+
+
 				if (Lower == TEXT("nullptr") || Lower == TEXT("none") || Lower.IsEmpty()
 					|| (Lower == TEXT("self") && !Pin->bHidden))
 				{
-					UE_LOG(LogTemp, Log, TEXT("[Weaver] Set: %s.%s = (skipped for object pin, value='%s')"), *Set.NodeId, *Set.PinName, *FinalValue);
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Set: %s.%s = (skipped for object pin, value='%s')"),
+					       *Set.NodeId, *Set.PinName, *FinalValue);
 					continue;
 				}
 			}
 
-			
+
 			FString UEValue = FinalValue;
 			if (UEValue.StartsWith(TEXT("vec(")) && UEValue.EndsWith(TEXT(")")))
 			{
@@ -1072,7 +1077,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					UEValue = FString::Printf(TEXT("%f,%f,%f"), X, Y, Z);
 				}
 			}
-			
+
 			else if (UEValue.StartsWith(TEXT("rot(")) && UEValue.EndsWith(TEXT(")")))
 			{
 				FString Inner = UEValue.Mid(4, UEValue.Len() - 5);
@@ -1090,8 +1095,8 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			UE_LOG(LogTemp, Log, TEXT("[Weaver] Set: %s.%s = %s"), *Set.NodeId, *Set.PinName, *UEValue);
 		}
 	}
-	
-	
+
+
 	FSequenceDynamicPinHandler SequenceHandler;
 	SequenceHandler.PreScanLinks(AST.Links, CreatedNodes);
 	SequenceHandler.AddDynamicPins(CreatedNodes);
@@ -1099,8 +1104,8 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 	FSwitchEnumDynamicPinHandler SwitchEnumHandler;
 	SwitchEnumHandler.PreScanLinks(AST.Links, CreatedNodes);
 	SwitchEnumHandler.AddDynamicPins(CreatedNodes);
-	
-	
+
+
 	const UEdGraphSchema_K2* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
 	if (Schema)
 	{
@@ -1108,11 +1113,11 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		{
 			UK2Node* FromNode = nullptr;
 			UK2Node* ToNode = nullptr;
-			
-			
+
+
 			FString FromNodeId = Link.FromNode;
 			FString ToNodeId = Link.ToNode;
-			
+
 			if (!FunctionEventNodeId.IsEmpty())
 			{
 				if (FromNodeId == FunctionEventNodeId)
@@ -1126,8 +1131,8 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					UE_LOG(LogTemp, Log, TEXT("[Weaver] 连接时将 %s 替换为 entry"), *Link.ToNode);
 				}
 			}
-			
-			
+
+
 			if (FromNodeId == TEXT("entry"))
 			{
 				for (UEdGraphNode* Node : Graph->Nodes)
@@ -1144,7 +1149,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				UK2Node** FromNodePtr = CreatedNodes.Find(FromNodeId);
 				if (FromNodePtr) FromNode = *FromNodePtr;
 			}
-			
+
 			if (ToNodeId == TEXT("entry"))
 			{
 				for (UEdGraphNode* Node : Graph->Nodes)
@@ -1161,26 +1166,27 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				UK2Node** ToNodePtr = CreatedNodes.Find(ToNodeId);
 				if (ToNodePtr) ToNode = *ToNodePtr;
 			}
-			
+
 			if (!FromNode || !ToNode)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link failed: node not found (%s or %s)"), *FromNodeId, *ToNodeId);
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link failed: node not found (%s or %s)"), *FromNodeId,
+				       *ToNodeId);
 				if (!OutError.IsEmpty()) OutError += TEXT("\n");
 				OutError += FString::Printf(TEXT("link %s.%s -> %s.%s 失败：节点 '%s' 不存在（可能因 schema_id 无效而未被创建）。"),
-					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin,
-					!FromNode ? *FromNodeId : *ToNodeId);
+				                            *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin,
+				                            !FromNode ? *FromNodeId : *ToNodeId);
 				continue;
 			}
-			
-			
+
+
 			UEdGraphPin* FromPin = FromNode->FindPin(*Link.FromPin, EGPD_Output);
-			
+
 			if (!FromPin && Link.FromPin != TEXT("ReturnValue"))
 				FromPin = FromNode->FindPin(TEXT("ReturnValue"), EGPD_Output);
 
 			UEdGraphPin* ToPin = ToNode->FindPin(*Link.ToPin, EGPD_Input);
-			
-			
+
+
 			if (!ToPin)
 			{
 				if (UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(ToNode))
@@ -1192,13 +1198,12 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 						{
 							if ((*It)->GetName() == Link.ToPin)
 							{
-								
 								UEdGraphPin* SelfPin = ToNode->FindPin(TEXT("self"), EGPD_Input);
 								if (SelfPin)
 								{
 									ToPin = SelfPin;
 									UE_LOG(LogTemp, Log, TEXT("[Weaver] Remapped pin '%s' -> 'self' for node '%s'"),
-										*Link.ToPin, *Link.ToNode);
+									       *Link.ToPin, *Link.ToNode);
 								}
 								break;
 							}
@@ -1206,13 +1211,13 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 				}
 			}
-			
+
 			if (!FromPin || !ToPin)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link failed: pin not found (%s.%s or %s.%s)"),
-					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
+				       *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
 
-				
+
 				auto CollectPinNames = [](UK2Node* Node, EEdGraphPinDirection Dir) -> FString
 				{
 					TArray<FString> Names;
@@ -1249,21 +1254,22 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				OutError += LinkError;
 				continue;
 			}
-			
-			
+
+
 			FromPin->Modify();
 			ToPin->Modify();
 
-			
+
 			const FPinConnectionResponse ConnectResponse = Schema->CanCreateConnection(FromPin, ToPin);
 			if (ConnectResponse.Response == CONNECT_RESPONSE_DISALLOW)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link disallowed: %s.%s (%s) -> %s.%s (%s): %s"),
-					*Link.FromNode, *Link.FromPin, *FromPin->PinType.PinCategory.ToString(),
-					*Link.ToNode, *Link.ToPin, *ToPin->PinType.PinCategory.ToString(),
-					*ConnectResponse.Message.ToString());
+				       *Link.FromNode, *Link.FromPin, *FromPin->PinType.PinCategory.ToString(),
+				       *Link.ToNode, *Link.ToPin, *ToPin->PinType.PinCategory.ToString(),
+				       *ConnectResponse.Message.ToString());
 				FString LinkError = FString::Printf(
-					TEXT("link %s.%s -> %s.%s 无法建立：引脚类型 '%s' 与 '%s' 不兼容且无可用的自动转换节点。请手动声明转换节点（如 special.ToString 等）再连接。"),
+					TEXT(
+						"link %s.%s -> %s.%s 无法建立：引脚类型 '%s' 与 '%s' 不兼容且无可用的自动转换节点。请手动声明转换节点（如 special.ToString 等）再连接。"),
 					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin,
 					*FromPin->PinType.PinCategory.ToString(), *ToPin->PinType.PinCategory.ToString());
 				if (!OutError.IsEmpty()) OutError += TEXT("\n");
@@ -1271,15 +1277,12 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				continue;
 			}
 
-			
-			
-			
-			
+
 			bool bConnected = Schema->TryCreateConnection(FromPin, ToPin);
 			if (!bConnected)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("[Weaver] TryCreateConnection failed: %s.%s -> %s.%s"),
-					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
+				       *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
 				FString LinkError = FString::Printf(
 					TEXT("link %s.%s -> %s.%s 连接失败（TryCreateConnection 返回 false），请检查引脚名称和类型是否正确。"),
 					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
@@ -1292,19 +1295,17 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			ToNode->PinConnectionListChanged(ToPin);
 
 			UE_LOG(LogTemp, Log, TEXT("[Weaver] Linked: %s.%s -> %s.%s"),
-				*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
+			       *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
 		}
 	}
-	
-	
-	
-	
+
+
 	for (auto& KV : CreatedNodes)
 	{
 		UK2Node* Node = KV.Value;
 		if (!Node) continue;
 
-		
+
 		int32 ExecOutTotal = 0;
 		int32 ExecOutUnlinked = 0;
 		TArray<FString> UnlinkedPinNames;
@@ -1323,8 +1324,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			}
 		}
 
-		
-		
+
 		if (ExecOutTotal >= 2 && ExecOutUnlinked > 0)
 		{
 			FString PinList = FString::Join(UnlinkedPinNames, TEXT(", "));
@@ -1337,16 +1337,15 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		}
 	}
 
-	
+
 	Graph->NotifyGraphChanged();
-	
+
 	UE_LOG(LogTemp, Log, TEXT("[Weaver] Created %d nodes successfully"), NodesCreated);
 	return NodesCreated;
 }
 
 UK2Node* FWeaveInterpreter::CreateEventNode(UEdGraph* Graph, const FString& ClassName, const FString& EventName)
 {
-	
 	for (UEdGraphNode* ExistingNode : Graph->Nodes)
 	{
 		if (UK2Node_Event* ExistingEvent = Cast<UK2Node_Event>(ExistingNode))
@@ -1364,14 +1363,14 @@ UK2Node* FWeaveInterpreter::CreateEventNode(UEdGraph* Graph, const FString& Clas
 	if (EventNode)
 	{
 		EventNode->CreateNewGuid();
-		
-		
+
+
 		FString FullClassName = ClassName;
 		if (ClassName == TEXT("Actor"))
 		{
 			FullClassName = TEXT("/Script/Engine.Actor");
 		}
-		
+
 		EventNode->EventReference.SetExternalMember(*EventName, UClass::TryFindTypeSlow<UClass>(*FullClassName));
 		EventNode->bOverrideFunction = true;
 		EventNode->AllocateDefaultPins();
@@ -1386,20 +1385,20 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 	if (CallNode)
 	{
 		CallNode->CreateNewGuid();
-		
-		
+
+
 		static const TMap<FString, FString> FuncNameTranslation = {
-			{ TEXT("Conv_FloatToString"),        TEXT("Conv_DoubleToString") },
-			{ TEXT("Conv_FloatToInt"),           TEXT("Conv_DoubleToInt") },
-			{ TEXT("Conv_FloatToBool"),          TEXT("Conv_DoubleToBool") },
-			{ TEXT("Conv_FloatToVector"),        TEXT("Conv_DoubleToVector") },
-			{ TEXT("Conv_FloatToVector2D"),      TEXT("Conv_DoubleToVector2D") },
-			{ TEXT("Conv_IntToFloat"),           TEXT("Conv_IntToDouble") },
-			{ TEXT("Conv_ByteToFloat"),          TEXT("Conv_ByteToDouble") },
-			{ TEXT("Conv_BoolToFloat"),          TEXT("Conv_BoolToDouble") },
-			{ TEXT("FMin"),                      TEXT("Min") },
-			{ TEXT("FMax"),                      TEXT("Max") },
-			{ TEXT("FClamp"),                    TEXT("Clamp_Float") },
+			{TEXT("Conv_FloatToString"), TEXT("Conv_DoubleToString")},
+			{TEXT("Conv_FloatToInt"), TEXT("Conv_DoubleToInt")},
+			{TEXT("Conv_FloatToBool"), TEXT("Conv_DoubleToBool")},
+			{TEXT("Conv_FloatToVector"), TEXT("Conv_DoubleToVector")},
+			{TEXT("Conv_FloatToVector2D"), TEXT("Conv_DoubleToVector2D")},
+			{TEXT("Conv_IntToFloat"), TEXT("Conv_IntToDouble")},
+			{TEXT("Conv_ByteToFloat"), TEXT("Conv_ByteToDouble")},
+			{TEXT("Conv_BoolToFloat"), TEXT("Conv_BoolToDouble")},
+			{TEXT("FMin"), TEXT("Min")},
+			{TEXT("FMax"), TEXT("Max")},
+			{TEXT("FClamp"), TEXT("Clamp_Float")},
 		};
 		FString ResolvedFunctionName = FunctionName;
 		if (const FString* Translated = FuncNameTranslation.Find(FunctionName))
@@ -1408,7 +1407,7 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 			ResolvedFunctionName = *Translated;
 		}
 
-		
+
 		FString FullClassName = ClassName;
 		if (ClassName == TEXT("KismetSystemLibrary"))
 		{
@@ -1427,7 +1426,7 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 			FullClassName = TEXT("/Script/Engine.GameplayStatics");
 		}
 
-		
+
 		UClass* TargetClass = nullptr;
 		if (FullClassName.StartsWith(TEXT("/")))
 		{
@@ -1448,7 +1447,8 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 			}
 			else
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Function not found: %s::%s"), *FullClassName, *ResolvedFunctionName);
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Function not found: %s::%s"), *FullClassName,
+				       *ResolvedFunctionName);
 			}
 		}
 		else
@@ -1468,13 +1468,13 @@ UK2Node* FWeaveInterpreter::CreateMacroNode(UEdGraph* Graph, const FString& Macr
 
 		UE_LOG(LogTemp, Log, TEXT("[Weaver] Loading macro: Path=%s, Name=%s"), *MacroPath, *MacroName);
 
-		
+
 		UBlueprint* MacroBlueprint = LoadObject<UBlueprint>(nullptr, *MacroPath);
 		if (MacroBlueprint)
 		{
 			UE_LOG(LogTemp, Log, TEXT("[Weaver] Macro blueprint loaded, searching for macro graph..."));
 
-			
+
 			UEdGraph* MacroGraph = nullptr;
 			for (UEdGraph* TempGraph : MacroBlueprint->MacroGraphs)
 			{
@@ -1492,7 +1492,7 @@ UK2Node* FWeaveInterpreter::CreateMacroNode(UEdGraph* Graph, const FString& Macr
 			if (MacroGraph)
 			{
 				UE_LOG(LogTemp, Log, TEXT("[Weaver] Macro graph found, setting up node..."));
-				
+
 				MacroNode->SetMacroGraph(MacroGraph);
 				MacroNode->AllocateDefaultPins();
 				MacroNode->ReconstructNode();
@@ -1547,7 +1547,6 @@ UK2Node* FWeaveInterpreter::CreateMathExpressionNode(UEdGraph* Graph)
 
 UK2Node* FWeaveInterpreter::CreateMakeStructNode(UEdGraph* Graph, const FString& StructTypeName)
 {
-	
 	UScriptStruct* StructType = nullptr;
 	for (TObjectIterator<UScriptStruct> It; It; ++It)
 	{
@@ -1557,7 +1556,7 @@ UK2Node* FWeaveInterpreter::CreateMakeStructNode(UEdGraph* Graph, const FString&
 			break;
 		}
 	}
-	
+
 	if (StructType)
 	{
 		UK2Node_MakeStruct* MakeNode = Graph->CreateIntermediateNode<UK2Node_MakeStruct>();
@@ -1567,11 +1566,15 @@ UK2Node* FWeaveInterpreter::CreateMakeStructNode(UEdGraph* Graph, const FString&
 			MakeNode->CreateNewGuid();
 			MakeNode->AllocateDefaultPins();
 
-			
+
 			bool bHasInputPins = false;
 			for (UEdGraphPin* Pin : MakeNode->Pins)
 			{
-				if (Pin->Direction == EGPD_Input) { bHasInputPins = true; break; }
+				if (Pin->Direction == EGPD_Input)
+				{
+					bHasInputPins = true;
+					break;
+				}
 			}
 			if (bHasInputPins)
 				return MakeNode;
@@ -1580,7 +1583,7 @@ UK2Node* FWeaveInterpreter::CreateMakeStructNode(UEdGraph* Graph, const FString&
 		}
 	}
 
-	
+
 	FString TypeShortName = StructTypeName;
 	if (TypeShortName.StartsWith(TEXT("F")))
 		TypeShortName = TypeShortName.RightChop(1);
@@ -1590,7 +1593,6 @@ UK2Node* FWeaveInterpreter::CreateMakeStructNode(UEdGraph* Graph, const FString&
 
 UK2Node* FWeaveInterpreter::CreateBreakStructNode(UEdGraph* Graph, const FString& StructTypeName)
 {
-	
 	UScriptStruct* StructType = nullptr;
 	for (TObjectIterator<UScriptStruct> It; It; ++It)
 	{
@@ -1600,7 +1602,7 @@ UK2Node* FWeaveInterpreter::CreateBreakStructNode(UEdGraph* Graph, const FString
 			break;
 		}
 	}
-	
+
 	if (StructType)
 	{
 		UK2Node_BreakStruct* BreakNode = Graph->CreateIntermediateNode<UK2Node_BreakStruct>();
@@ -1610,11 +1612,15 @@ UK2Node* FWeaveInterpreter::CreateBreakStructNode(UEdGraph* Graph, const FString
 			BreakNode->CreateNewGuid();
 			BreakNode->AllocateDefaultPins();
 
-			
+
 			bool bHasOutputPins = false;
 			for (UEdGraphPin* Pin : BreakNode->Pins)
 			{
-				if (Pin->Direction == EGPD_Output) { bHasOutputPins = true; break; }
+				if (Pin->Direction == EGPD_Output)
+				{
+					bHasOutputPins = true;
+					break;
+				}
 			}
 			if (bHasOutputPins)
 				return BreakNode;
@@ -1623,7 +1629,7 @@ UK2Node* FWeaveInterpreter::CreateBreakStructNode(UEdGraph* Graph, const FString
 		}
 	}
 
-	
+
 	FString TypeShortName = StructTypeName;
 	if (TypeShortName.StartsWith(TEXT("F")))
 		TypeShortName = TypeShortName.RightChop(1);
@@ -1637,8 +1643,8 @@ UK2Node* FWeaveInterpreter::CreateVariableGetNode(UEdGraph* Graph, UBlueprint* B
 	if (VarGetNode)
 	{
 		VarGetNode->CreateNewGuid();
-		
-		
+
+
 		FName VarFName = FName(*VarName);
 		VarGetNode->VariableReference.SetSelfMember(VarFName);
 		VarGetNode->AllocateDefaultPins();
@@ -1652,8 +1658,8 @@ UK2Node* FWeaveInterpreter::CreateVariableSetNode(UEdGraph* Graph, UBlueprint* B
 	if (VarSetNode)
 	{
 		VarSetNode->CreateNewGuid();
-		
-		
+
+
 		FName VarFName = FName(*VarName);
 		VarSetNode->VariableReference.SetSelfMember(VarFName);
 		VarSetNode->AllocateDefaultPins();
@@ -1690,7 +1696,7 @@ UK2Node* FWeaveInterpreter::CreateDynamicCastNode(UEdGraph* Graph, const FString
 	{
 		CastNode->CreateNewGuid();
 
-		
+
 		UClass* TargetClass = UClass::TryFindTypeSlow<UClass>(*(TEXT("A") + TargetTypeName));
 		if (!TargetClass) TargetClass = UClass::TryFindTypeSlow<UClass>(*(TEXT("U") + TargetTypeName));
 		if (!TargetClass) TargetClass = UClass::TryFindTypeSlow<UClass>(*TargetTypeName);
@@ -1712,7 +1718,6 @@ UK2Node* FWeaveInterpreter::CreateDynamicCastNode(UEdGraph* Graph, const FString
 
 UK2Node* FWeaveInterpreter::CreateSwitchEnumNode(UEdGraph* Graph, const FString& EnumName)
 {
-	
 	UEnum* TargetEnum = nullptr;
 	for (TObjectIterator<UEnum> It; It; ++It)
 	{
@@ -1720,7 +1725,7 @@ UK2Node* FWeaveInterpreter::CreateSwitchEnumNode(UEdGraph* Graph, const FString&
 		if (!Candidate->HasAnyFlags(RF_Public))
 			continue;
 
-		
+
 		FString FullName = Candidate->GetName();
 		FString ShortName = FullName;
 		int32 ColonIdx;
@@ -1744,7 +1749,7 @@ UK2Node* FWeaveInterpreter::CreateSwitchEnumNode(UEdGraph* Graph, const FString&
 	if (SwitchNode)
 	{
 		SwitchNode->CreateNewGuid();
-		
+
 		SwitchNode->SetEnum(TargetEnum);
 		SwitchNode->ReconstructNode();
 	}

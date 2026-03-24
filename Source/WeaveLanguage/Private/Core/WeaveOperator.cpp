@@ -1,5 +1,3 @@
-
-
 #include "Core/WeaveOperator.h"
 #include "Core/WeaveGenerator.h"
 #include "Core/WeaveInterpreter.h"
@@ -44,17 +42,17 @@ TArray<FString> UWeaveOperator::GenerateKeywords(const FString& Title)
 	TArray<FString> Words;
 	Title.ParseIntoArray(Words, TEXT(" "));
 
-	
+
 	Keywords.Add(Title.ToLower());
 
-	
+
 	FString NoSpaceTitle = Title.Replace(TEXT(" "), TEXT("")).ToLower();
 	if (!NoSpaceTitle.IsEmpty())
 	{
 		Keywords.AddUnique(NoSpaceTitle);
 	}
 
-	
+
 	for (int32 i = 0; i < Words.Num(); i++)
 	{
 		for (int32 j = i + 1; j <= Words.Num(); j++)
@@ -86,11 +84,11 @@ void UWeaveOperator::BuildSearchIndex()
 	{
 		const TSharedPtr<FJsonObject>& Node = NodeCatalog[i];
 
-		
+
 		FString Id = Node->GetStringField(TEXT("id")).ToLower();
 		IdIndex.Add(Id, i);
 
-		
+
 		FString Title = Node->GetStringField(TEXT("title")).ToLower();
 		TArray<FString> TitleWords;
 		Title.ParseIntoArray(TitleWords, TEXT(" "));
@@ -102,7 +100,7 @@ void UWeaveOperator::BuildSearchIndex()
 			}
 		}
 
-		
+
 		if (Node->HasField(TEXT("search")))
 		{
 			TSharedPtr<FJsonObject> Search = Node->GetObjectField(TEXT("search"));
@@ -135,7 +133,7 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 		return nullptr;
 	}
 
-	
+
 	FString NodeClassName = K2Node->GetClass()->GetName();
 	if (NodeClassName.Contains(TEXT("Variable")))
 	{
@@ -147,26 +145,26 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 
 	TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 
-	
+
 	if (UK2Node_Event* EventNode = Cast<UK2Node_Event>(K2Node))
 	{
 		FString EventName = EventNode->EventReference.GetMemberName().ToString();
 		UClass* OwnerClass = EventNode->EventReference.GetMemberParentClass();
 		FString ClassName = OwnerClass ? OwnerClass->GetName().Replace(TEXT("_C"), TEXT("")) : TEXT("Unknown");
 
-		
+
 		JsonNode->SetStringField(TEXT("id"), FString::Printf(TEXT("event.%s.%s"), *ClassName, *EventName));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_Event"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("event"));
 		JsonNode->SetStringField(TEXT("title"), EventNode->GetNodeTitle(ENodeTitleType::ListView).ToString());
 
-		
+
 		TSharedPtr<FJsonObject> Source = MakeShareable(new FJsonObject);
 		Source->SetStringField(TEXT("owner_class"), ClassName);
 		Source->SetStringField(TEXT("event_name"), EventName);
 		JsonNode->SetObjectField(TEXT("source"), Source);
 
-		
+
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		Pins->SetArrayField(TEXT("exec_in"), TArray<TSharedPtr<FJsonValue>>());
 
@@ -178,20 +176,20 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 		Pins->SetArrayField(TEXT("outputs"), TArray<TSharedPtr<FJsonValue>>());
 		JsonNode->SetObjectField(TEXT("pins"), Pins);
 
-		
+
 		TSharedPtr<FJsonObject> Flags = MakeShareable(new FJsonObject);
 		Flags->SetBoolField(TEXT("pure"), false);
 		JsonNode->SetObjectField(TEXT("flags"), Flags);
 
-		
+
 		TSharedPtr<FJsonObject> Search = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> KeywordsArray;
 
-		
+
 		FString Title = EventNode->GetNodeTitle(ENodeTitleType::ListView).ToString();
 		TArray<FString> Keywords = GenerateKeywords(Title);
 
-		 
+
 		Keywords.AddUnique(EventName.ToLower());
 		FString NoSpaceEventName = EventName.Replace(TEXT(" "), TEXT("")).ToLower();
 		Keywords.AddUnique(NoSpaceEventName);
@@ -211,7 +209,7 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 		return JsonNode;
 	}
 
-	 
+
 	else if (UK2Node_CallFunction* FuncNode = Cast<UK2Node_CallFunction>(K2Node))
 	{
 		UFunction* Function = FuncNode->GetTargetFunction();
@@ -225,19 +223,19 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 		UClass* OwnerClass = Function->GetOwnerClass();
 		FString ClassName = OwnerClass ? OwnerClass->GetName().Replace(TEXT("_C"), TEXT("")) : TEXT("Unknown");
 
-		 
+
 		JsonNode->SetStringField(TEXT("id"), FString::Printf(TEXT("call.%s.%s"), *ClassName, *MemberName));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_CallFunction"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("call"));
 		JsonNode->SetStringField(TEXT("title"), FuncNode->GetNodeTitle(ENodeTitleType::ListView).ToString());
 
-		 
+
 		TSharedPtr<FJsonObject> Source = MakeShareable(new FJsonObject);
 		Source->SetStringField(TEXT("member_parent"), ClassName);
 		Source->SetStringField(TEXT("member_name"), MemberName);
 		JsonNode->SetObjectField(TEXT("source"), Source);
 
-		 
+
 		bool bIsStatic = Function->HasAnyFunctionFlags(FUNC_Static);
 		if (!bIsStatic)
 		{
@@ -248,14 +246,14 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 			JsonNode->SetObjectField(TEXT("target"), Target);
 		}
 
-		 
+
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> InputsArray;
 		TArray<TSharedPtr<FJsonValue>> OutputsArray;
 
 		bool bIsPure = Function->HasAnyFunctionFlags(FUNC_BlueprintPure);
 
-		 
+
 		if (!bIsPure)
 		{
 			TArray<TSharedPtr<FJsonValue>> ExecIn;
@@ -272,8 +270,7 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 			Pins->SetArrayField(TEXT("exec_out"), TArray<TSharedPtr<FJsonValue>>());
 		}
 
-		 
-		 
+
 		bool bFirstInputParam = true;
 		for (TFieldIterator<FProperty> It(Function); It; ++It)
 		{
@@ -297,7 +294,6 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 			}
 			else
 			{
-				 
 				FObjectProperty* ObjProp = CastField<FObjectProperty>(Prop);
 				if (!bIsStatic && bFirstInputParam && ObjProp)
 				{
@@ -323,13 +319,13 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 		Pins->SetArrayField(TEXT("outputs"), OutputsArray);
 		JsonNode->SetObjectField(TEXT("pins"), Pins);
 
-		 
+
 		TSharedPtr<FJsonObject> Flags = MakeShareable(new FJsonObject);
 		Flags->SetBoolField(TEXT("pure"), bIsPure);
-		Flags->SetBoolField(TEXT("latent"), false);  
+		Flags->SetBoolField(TEXT("latent"), false);
 		JsonNode->SetObjectField(TEXT("flags"), Flags);
 
-		 
+
 		TSharedPtr<FJsonObject> Search = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> KeywordsArray;
 		TArray<FString> Keywords = GenerateKeywords(FuncNode->GetNodeTitle(ENodeTitleType::ListView).ToString());
@@ -354,32 +350,31 @@ TSharedPtr<FJsonObject> UWeaveOperator::NodeToJson(UEdGraphNode* Node)
 
 void UWeaveOperator::GenerateWeaveLanguage()
 {
-	 
 	TArray<TSharedPtr<FJsonValue>> NodesArray;
 	int32 ProcessedFunctions = 0;
 	int32 ProcessedEvents = 0;
 
-	 
+
 	TSet<FString> ProcessedFunctionIds;
 	TSet<FString> ProcessedEventIds;
 
-	 
+
 	for (TObjectIterator<UClass> ClassIt; ClassIt; ++ClassIt)
 	{
 		UClass* Class = *ClassIt;
 
-		 
+
 		if (Class->HasAnyClassFlags(CLASS_Deprecated))
 		{
 			continue;
 		}
 
-		 
+
 		for (TFieldIterator<UFunction> FuncIt(Class); FuncIt; ++FuncIt)
 		{
 			UFunction* Function = *FuncIt;
 
-			 
+
 			if (Function->HasMetaData(TEXT("DeprecatedFunction")))
 			{
 				continue;
@@ -388,17 +383,16 @@ void UWeaveOperator::GenerateWeaveLanguage()
 			FString MemberName = Function->GetName();
 			FString ClassName = Class->GetName().Replace(TEXT("_C"), TEXT(""));
 
-			 
+
 			if (Function->HasAnyFunctionFlags(FUNC_BlueprintEvent))
 			{
-				 
 				UClass* OwnerClass = Function->GetOwnerClass();
 
-				 
+
 				if (MemberName == TEXT("ReceiveBeginPlay"))
 				{
 					UE_LOG(LogTemp, Warning, TEXT("[Scan] Found ReceiveBeginPlay in class %s, OwnerClass=%s, Match=%d"),
-						*ClassName, *OwnerClass->GetName(), (OwnerClass == Class));
+					       *ClassName, *OwnerClass->GetName(), (OwnerClass == Class));
 				}
 
 				if (OwnerClass != Class)
@@ -408,14 +402,15 @@ void UWeaveOperator::GenerateWeaveLanguage()
 
 				FString EventId = FString::Printf(TEXT("event.%s.%s"), *ClassName, *MemberName);
 
-				 
+
 				if (MemberName == TEXT("ReceiveBeginPlay"))
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[Scan] ReceiveBeginPlay passed OwnerClass check, EventId=%s, AlreadyProcessed=%d"),
-						*EventId, ProcessedEventIds.Contains(EventId));
+					UE_LOG(LogTemp, Warning,
+					       TEXT("[Scan] ReceiveBeginPlay passed OwnerClass check, EventId=%s, AlreadyProcessed=%d"),
+					       *EventId, ProcessedEventIds.Contains(EventId));
 				}
 
-				 
+
 				if (ProcessedEventIds.Contains(EventId))
 				{
 					continue;
@@ -423,12 +418,12 @@ void UWeaveOperator::GenerateWeaveLanguage()
 				ProcessedEventIds.Add(EventId);
 				TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 
-				 
+
 				JsonNode->SetStringField(TEXT("id"), EventId);
 				JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_Event"));
 				JsonNode->SetStringField(TEXT("kind"), TEXT("event"));
 
-				 
+
 				FString DisplayName = Function->GetMetaData(TEXT("DisplayName"));
 				if (DisplayName.IsEmpty())
 				{
@@ -436,13 +431,13 @@ void UWeaveOperator::GenerateWeaveLanguage()
 				}
 				JsonNode->SetStringField(TEXT("title"), DisplayName);
 
-				 
+
 				TSharedPtr<FJsonObject> Source = MakeShareable(new FJsonObject);
 				Source->SetStringField(TEXT("owner_class"), ClassName);
 				Source->SetStringField(TEXT("event_name"), MemberName);
 				JsonNode->SetObjectField(TEXT("source"), Source);
 
-				 
+
 				TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 				Pins->SetArrayField(TEXT("exec_in"), TArray<TSharedPtr<FJsonValue>>());
 
@@ -454,12 +449,12 @@ void UWeaveOperator::GenerateWeaveLanguage()
 				Pins->SetArrayField(TEXT("outputs"), TArray<TSharedPtr<FJsonValue>>());
 				JsonNode->SetObjectField(TEXT("pins"), Pins);
 
-				 
+
 				TSharedPtr<FJsonObject> Flags = MakeShareable(new FJsonObject);
 				Flags->SetBoolField(TEXT("pure"), false);
 				JsonNode->SetObjectField(TEXT("flags"), Flags);
 
-				 
+
 				TSharedPtr<FJsonObject> Search = MakeShareable(new FJsonObject);
 				TArray<TSharedPtr<FJsonValue>> KeywordsArray;
 
@@ -479,30 +474,33 @@ void UWeaveOperator::GenerateWeaveLanguage()
 				Search->SetArrayField(TEXT("category"), CategoryArray);
 				JsonNode->SetObjectField(TEXT("search"), Search);
 
-				 
+
 				if (MemberName == TEXT("ReceiveBeginPlay"))
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[Scan] ReceiveBeginPlay about to add to NodesArray, EventId=%s"), *EventId);
+					UE_LOG(LogTemp, Warning, TEXT("[Scan] ReceiveBeginPlay about to add to NodesArray, EventId=%s"),
+					       *EventId);
 				}
 
 				NodesArray.Add(MakeShareable(new FJsonValueObject(JsonNode)));
 				ProcessedEvents++;
 
-				 
+
 				if (MemberName == TEXT("ReceiveBeginPlay"))
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[Scan] ReceiveBeginPlay JSON added to array, total events so far: %d"), ProcessedEvents);
+					UE_LOG(LogTemp, Warning,
+					       TEXT("[Scan] ReceiveBeginPlay JSON added to array, total events so far: %d"),
+					       ProcessedEvents);
 				}
 				continue;
 			}
 
-			 
+
 			if (!Function->HasAnyFunctionFlags(FUNC_BlueprintCallable))
 			{
 				continue;
 			}
 
-			 
+
 			UClass* OwnerClass = Function->GetOwnerClass();
 			if (OwnerClass != Class)
 			{
@@ -514,22 +512,22 @@ void UWeaveOperator::GenerateWeaveLanguage()
 
 			FString FunctionId = FString::Printf(TEXT("call.%s.%s"), *ClassName, *MemberName);
 
-			 
+
 			if (ProcessedFunctionIds.Contains(FunctionId))
 			{
 				continue;
 			}
 			ProcessedFunctionIds.Add(FunctionId);
 
-			 
+
 			TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 
-			 
+
 			JsonNode->SetStringField(TEXT("id"), FunctionId);
 			JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_CallFunction"));
 			JsonNode->SetStringField(TEXT("kind"), TEXT("call"));
 
-			 
+
 			FString DisplayName = Function->GetMetaData(TEXT("DisplayName"));
 			if (DisplayName.IsEmpty())
 			{
@@ -537,13 +535,13 @@ void UWeaveOperator::GenerateWeaveLanguage()
 			}
 			JsonNode->SetStringField(TEXT("title"), DisplayName);
 
-			 
+
 			TSharedPtr<FJsonObject> Source = MakeShareable(new FJsonObject);
 			Source->SetStringField(TEXT("member_parent"), ClassName);
 			Source->SetStringField(TEXT("member_name"), MemberName);
 			JsonNode->SetObjectField(TEXT("source"), Source);
 
-			 
+
 			if (!bIsStatic)
 			{
 				TSharedPtr<FJsonObject> Target = MakeShareable(new FJsonObject);
@@ -553,12 +551,12 @@ void UWeaveOperator::GenerateWeaveLanguage()
 				JsonNode->SetObjectField(TEXT("target"), Target);
 			}
 
-			
+
 			TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 			TArray<TSharedPtr<FJsonValue>> InputsArray;
 			TArray<TSharedPtr<FJsonValue>> OutputsArray;
 
-			
+
 			if (!bIsPure)
 			{
 				TArray<TSharedPtr<FJsonValue>> ExecIn;
@@ -575,8 +573,7 @@ void UWeaveOperator::GenerateWeaveLanguage()
 				Pins->SetArrayField(TEXT("exec_out"), TArray<TSharedPtr<FJsonValue>>());
 			}
 
-			
-			
+
 			bool bFirstInputParam = true;
 			for (TFieldIterator<FProperty> PropIt(Function); PropIt; ++PropIt)
 			{
@@ -625,13 +622,13 @@ void UWeaveOperator::GenerateWeaveLanguage()
 			Pins->SetArrayField(TEXT("outputs"), OutputsArray);
 			JsonNode->SetObjectField(TEXT("pins"), Pins);
 
-			
+
 			TSharedPtr<FJsonObject> Flags = MakeShareable(new FJsonObject);
 			Flags->SetBoolField(TEXT("pure"), bIsPure);
 			Flags->SetBoolField(TEXT("latent"), false);
 			JsonNode->SetObjectField(TEXT("flags"), Flags);
 
-			
+
 			TSharedPtr<FJsonObject> Search = MakeShareable(new FJsonObject);
 			TArray<TSharedPtr<FJsonValue>> KeywordsArray;
 			TArray<FString> Keywords = GenerateKeywords(DisplayName);
@@ -653,15 +650,15 @@ void UWeaveOperator::GenerateWeaveLanguage()
 
 	UE_LOG(LogTemp, Log, TEXT("Processed %d events and %d functions"), ProcessedEvents, ProcessedFunctions);
 
-	
+
 	UE_LOG(LogTemp, Log, TEXT("Scanning standard macros..."));
 	int32 ProcessedMacros = 0;
 
-	
-	UBlueprint* StandardMacros = LoadObject<UBlueprint>(nullptr, TEXT("/Engine/EditorBlueprintResources/StandardMacros.StandardMacros"));
+
+	UBlueprint* StandardMacros = LoadObject<UBlueprint>(
+		nullptr, TEXT("/Engine/EditorBlueprintResources/StandardMacros.StandardMacros"));
 	if (StandardMacros)
 	{
-		
 		for (UEdGraph* Graph : StandardMacros->MacroGraphs)
 		{
 			if (!Graph) continue;
@@ -675,13 +672,15 @@ void UWeaveOperator::GenerateWeaveLanguage()
 			JsonNode->SetStringField(TEXT("kind"), TEXT("macro"));
 			JsonNode->SetStringField(TEXT("title"), FName::NameToDisplayString(MacroName, false));
 
-			
+
 			TSharedPtr<FJsonObject> Source = MakeShareable(new FJsonObject);
-			Source->SetStringField(TEXT("macro_graph"), FString::Printf(TEXT("/Engine/EditorBlueprintResources/StandardMacros.StandardMacros:%s"), *MacroName));
+			Source->SetStringField(
+				TEXT("macro_graph"),
+				FString::Printf(TEXT("/Engine/EditorBlueprintResources/StandardMacros.StandardMacros:%s"), *MacroName));
 			Source->SetStringField(TEXT("macro_name"), MacroName);
 			JsonNode->SetObjectField(TEXT("source"), Source);
 
-			
+
 			TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 			TArray<TSharedPtr<FJsonValue>> ExecIn, ExecOut, Inputs, Outputs;
 
@@ -689,7 +688,7 @@ void UWeaveOperator::GenerateWeaveLanguage()
 			{
 				if (!Node) continue;
 
-				
+
 				if (Node->GetClass()->GetName().Contains(TEXT("Tunnel")) && Node->GetName().Contains(TEXT("Entry")))
 				{
 					for (UEdGraphPin* Pin : Node->Pins)
@@ -712,7 +711,7 @@ void UWeaveOperator::GenerateWeaveLanguage()
 					}
 				}
 
-				
+
 				if (Node->GetClass()->GetName().Contains(TEXT("Tunnel")) && Node->GetName().Contains(TEXT("Result")))
 				{
 					for (UEdGraphPin* Pin : Node->Pins)
@@ -742,12 +741,12 @@ void UWeaveOperator::GenerateWeaveLanguage()
 			Pins->SetArrayField(TEXT("outputs"), Outputs);
 			JsonNode->SetObjectField(TEXT("pins"), Pins);
 
-			
+
 			TSharedPtr<FJsonObject> Flags = MakeShareable(new FJsonObject);
 			Flags->SetBoolField(TEXT("pure"), false);
 			JsonNode->SetObjectField(TEXT("flags"), Flags);
 
-			
+
 			TSharedPtr<FJsonObject> Search = MakeShareable(new FJsonObject);
 			TArray<TSharedPtr<FJsonValue>> Keywords;
 			for (const FString& Keyword : GenerateKeywords(MacroName))
@@ -767,11 +766,11 @@ void UWeaveOperator::GenerateWeaveLanguage()
 
 	UE_LOG(LogTemp, Log, TEXT("Processed %d macros"), ProcessedMacros);
 
-	
+
 	UE_LOG(LogTemp, Log, TEXT("Adding special built-in nodes..."));
 	int32 ProcessedSpecialNodes = 0;
 
-	
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.Branch"));
@@ -818,7 +817,7 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		ProcessedSpecialNodes++;
 	}
 
-	
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.Sequence"));
@@ -859,14 +858,17 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		ProcessedSpecialNodes++;
 	}
 
-	
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.MathExpression"));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_MathExpression"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("special"));
 		JsonNode->SetStringField(TEXT("title"), TEXT("Math Expression"));
-		JsonNode->SetStringField(TEXT("AgentNeedKnow"), TEXT("Example: \n node x : special.MathExpression @ (0, 0) \n set x.Expression = \"(A + B) * 2\" \n Input pins (A, B, etc.) are automatically created based on the expression"));
+		JsonNode->SetStringField(
+			TEXT("AgentNeedKnow"),
+			TEXT(
+				"Example: \n node x : special.MathExpression @ (0, 0) \n set x.Expression = \"(A + B) * 2\" \n Input pins (A, B, etc.) are automatically created based on the expression"));
 
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		Pins->SetArrayField(TEXT("exec_in"), TArray<TSharedPtr<FJsonValue>>());
@@ -898,37 +900,33 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		NodesArray.Add(MakeShareable(new FJsonValueObject(JsonNode)));
 		ProcessedSpecialNodes++;
 	}
-	
-	
-	
-	
-	
-	
-	
-	
-	
+
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.Make"));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_MakeStruct"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("special"));
 		JsonNode->SetStringField(TEXT("title"), TEXT("Make Struct"));
-		JsonNode->SetStringField(TEXT("AgentNeedKnow"), TEXT("用于用户自定义 Struct（游戏代码定义或蓝图定义）的 Make 节点。用法：node c : special.Make.FMyStruct @ (0, 0)，输出 pin 名为去掉 F 前缀的短名（如 c.MyStruct），成员 pin 直接用成员名（如 set c.X = 10）。注意：FTransform、FVector、FRotator 等 UE 内置数学类型不支持此节点，须用 call.KismetMathLibrary.Make* 代替（见规则 6.5）。"));
-		
+		JsonNode->SetStringField(
+			TEXT("AgentNeedKnow"),
+			TEXT(
+				"用于用户自定义 Struct（游戏代码定义或蓝图定义）的 Make 节点。用法：node c : special.Make.FMyStruct @ (0, 0)，输出 pin 名为去掉 F 前缀的短名（如 c.MyStruct），成员 pin 直接用成员名（如 set c.X = 10）。注意：FTransform、FVector、FRotator 等 UE 内置数学类型不支持此节点，须用 call.KismetMathLibrary.Make* 代替（见规则 6.5）。"));
+
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		Pins->SetArrayField(TEXT("exec_in"), TArray<TSharedPtr<FJsonValue>>());
 		Pins->SetArrayField(TEXT("exec_out"), TArray<TSharedPtr<FJsonValue>>());
 		Pins->SetArrayField(TEXT("inputs"), TArray<TSharedPtr<FJsonValue>>());
-		
+
 		TArray<TSharedPtr<FJsonValue>> Outputs;
 		Outputs.Add(MakeShareable(new FJsonValueString(TEXT("Output"))));
 		Pins->SetArrayField(TEXT("outputs"), Outputs);
 		JsonNode->SetObjectField(TEXT("pins"), Pins);
-		
+
 		TSharedPtr<FJsonObject> Flags = MakeShareable(new FJsonObject);
 		Flags->SetBoolField(TEXT("pure"), true);
 		JsonNode->SetObjectField(TEXT("flags"), Flags);
-		
+
 		TSharedPtr<FJsonObject> Search = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> Keywords;
 		Keywords.Add(MakeShareable(new FJsonValueString(TEXT("make"))));
@@ -940,40 +938,37 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		Category.Add(MakeShareable(new FJsonValueString(TEXT("Struct"))));
 		Search->SetArrayField(TEXT("category"), Category);
 		JsonNode->SetObjectField(TEXT("search"), Search);
-		
+
 		NodesArray.Add(MakeShareable(new FJsonValueObject(JsonNode)));
 		ProcessedSpecialNodes++;
 	}
-	
-	
-	
-	
-	
-	
-	
-	
+
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.Break"));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_BreakStruct"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("special"));
 		JsonNode->SetStringField(TEXT("title"), TEXT("Break Struct"));
-		JsonNode->SetStringField(TEXT("AgentNeedKnow"), TEXT("用于用户自定义 Struct（游戏代码定义或蓝图定义）的 Break 节点。用法：node c : special.Break.FMyStruct @ (0, 0)，各成员作为输出 pin 直接用成员名连线（如 link c.X -> target.input）。注意：FTransform、FVector、FRotator 等 UE 内置数学类型不支持此节点，须用 call.KismetMathLibrary.Break* 代替（见规则 6.5）。"));
-		
+		JsonNode->SetStringField(
+			TEXT("AgentNeedKnow"),
+			TEXT(
+				"用于用户自定义 Struct（游戏代码定义或蓝图定义）的 Break 节点。用法：node c : special.Break.FMyStruct @ (0, 0)，各成员作为输出 pin 直接用成员名连线（如 link c.X -> target.input）。注意：FTransform、FVector、FRotator 等 UE 内置数学类型不支持此节点，须用 call.KismetMathLibrary.Break* 代替（见规则 6.5）。"));
+
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		Pins->SetArrayField(TEXT("exec_in"), TArray<TSharedPtr<FJsonValue>>());
 		Pins->SetArrayField(TEXT("exec_out"), TArray<TSharedPtr<FJsonValue>>());
-		
+
 		TArray<TSharedPtr<FJsonValue>> Inputs;
 		Inputs.Add(MakeShareable(new FJsonValueString(TEXT("Input"))));
 		Pins->SetArrayField(TEXT("inputs"), Inputs);
 		Pins->SetArrayField(TEXT("outputs"), TArray<TSharedPtr<FJsonValue>>());
 		JsonNode->SetObjectField(TEXT("pins"), Pins);
-		
+
 		TSharedPtr<FJsonObject> Flags = MakeShareable(new FJsonObject);
 		Flags->SetBoolField(TEXT("pure"), true);
 		JsonNode->SetObjectField(TEXT("flags"), Flags);
-		
+
 		TSharedPtr<FJsonObject> Search = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> Keywords;
 		Keywords.Add(MakeShareable(new FJsonValueString(TEXT("break"))));
@@ -985,19 +980,22 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		Category.Add(MakeShareable(new FJsonValueString(TEXT("Struct"))));
 		Search->SetArrayField(TEXT("category"), Category);
 		JsonNode->SetObjectField(TEXT("search"), Search);
-		
+
 		NodesArray.Add(MakeShareable(new FJsonValueObject(JsonNode)));
 		ProcessedSpecialNodes++;
 	}
 
-	
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.SpawnActorFromClass"));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_SpawnActorFromClass"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("special"));
 		JsonNode->SetStringField(TEXT("title"), TEXT("Spawn Actor from Class"));
-		JsonNode->SetStringField(TEXT("AgentNeedKnow"), TEXT("Spawn an Actor into the world. Use set to specify the Class pin (e.g. /Game/BP_MyActor.BP_MyActor_C). SpawnTransform is a ref pin — it CANNOT be left empty, you MUST connect it. FTransform is a UE built-in math type, use KismetMathLibrary (NOT special.Make):\n  node t : call.KismetMathLibrary.MakeTransform @ (x, y)\n  link t.ReturnValue -> <thisNode>.SpawnTransform\nAfter Class is set, ExposeOnSpawn properties of the selected class appear as additional input pins."));
+		JsonNode->SetStringField(
+			TEXT("AgentNeedKnow"),
+			TEXT(
+				"Spawn an Actor into the world. Use set to specify the Class pin (e.g. /Game/BP_MyActor.BP_MyActor_C). SpawnTransform is a ref pin — it CANNOT be left empty, you MUST connect it. FTransform is a UE built-in math type, use KismetMathLibrary (NOT special.Make):\n  node t : call.KismetMathLibrary.MakeTransform @ (x, y)\n  link t.ReturnValue -> <thisNode>.SpawnTransform\nAfter Class is set, ExposeOnSpawn properties of the selected class appear as additional input pins."));
 
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> ExecIn, ExecOut, Inputs, Outputs;
@@ -1059,14 +1057,17 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		ProcessedSpecialNodes++;
 	}
 
-	
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.ConstructObjectFromClass"));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_ConstructObjectFromClass"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("special"));
 		JsonNode->SetStringField(TEXT("title"), TEXT("Construct Object from Class"));
-		JsonNode->SetStringField(TEXT("AgentNeedKnow"), TEXT("Construct a UObject instance from a class. Set Class pin via set statement. After Class is set, ExposeOnSpawn properties appear as additional pins automatically."));
+		JsonNode->SetStringField(
+			TEXT("AgentNeedKnow"),
+			TEXT(
+				"Construct a UObject instance from a class. Set Class pin via set statement. After Class is set, ExposeOnSpawn properties appear as additional pins automatically."));
 
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> ExecIn, ExecOut, Inputs, Outputs;
@@ -1116,14 +1117,17 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		ProcessedSpecialNodes++;
 	}
 
-	
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.Cast"));
 		JsonNode->SetStringField(TEXT("node_class"), TEXT("K2Node_DynamicCast"));
 		JsonNode->SetStringField(TEXT("kind"), TEXT("special"));
 		JsonNode->SetStringField(TEXT("title"), TEXT("Cast To"));
-		JsonNode->SetStringField(TEXT("AgentNeedKnow"), TEXT("Cast an object to a specific type. Type is encoded in schema ID like Make/Break (e.g. special.Cast.MyActor). Output pin is named As<TypeName> (e.g. AsMyActor). CastFailed exec fires on failure."));
+		JsonNode->SetStringField(
+			TEXT("AgentNeedKnow"),
+			TEXT(
+				"Cast an object to a specific type. Type is encoded in schema ID like Make/Break (e.g. special.Cast.MyActor). Output pin is named As<TypeName> (e.g. AsMyActor). CastFailed exec fires on failure."));
 
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> ExecIn, ExecOut, Inputs, Outputs;
@@ -1168,7 +1172,7 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		ProcessedSpecialNodes++;
 	}
 
-	
+
 	{
 		TSharedPtr<FJsonObject> JsonNode = MakeShareable(new FJsonObject);
 		JsonNode->SetStringField(TEXT("id"), TEXT("special.SwitchEnum"));
@@ -1176,11 +1180,11 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		JsonNode->SetStringField(TEXT("kind"), TEXT("special"));
 		JsonNode->SetStringField(TEXT("title"), TEXT("Switch on Enum"));
 		JsonNode->SetStringField(TEXT("AgentNeedKnow"), TEXT(
-			"Switch on an enum value. Encode the enum type in the schema ID: special.SwitchEnum.<EnumName> (e.g. special.SwitchEnum.EMyEnum). "
-			"The exec output pins are named after each enum value exactly as returned by SearchType (e.g. EMyEnum::ValueA → exec out pin name is 'ValueA'). "
-			"The Selection input pin receives the enum variable. "
-			"Use SearchType to look up the enum values before writing the node."
-		));
+			                         "Switch on an enum value. Encode the enum type in the schema ID: special.SwitchEnum.<EnumName> (e.g. special.SwitchEnum.EMyEnum). "
+			                         "The exec output pins are named after each enum value exactly as returned by SearchType (e.g. EMyEnum::ValueA → exec out pin name is 'ValueA'). "
+			                         "The Selection input pin receives the enum variable. "
+			                         "Use SearchType to look up the enum values before writing the node."
+		                         ));
 
 		TSharedPtr<FJsonObject> Pins = MakeShareable(new FJsonObject);
 		TArray<TSharedPtr<FJsonValue>> ExecIn, ExecOut, Inputs;
@@ -1220,7 +1224,7 @@ void UWeaveOperator::GenerateWeaveLanguage()
 
 	UE_LOG(LogTemp, Log, TEXT("Processed %d special nodes"), ProcessedSpecialNodes);
 
-	
+
 	NodeCatalog.Empty();
 	for (const TSharedPtr<FJsonValue>& NodeValue : NodesArray)
 	{
@@ -1228,108 +1232,108 @@ void UWeaveOperator::GenerateWeaveLanguage()
 	}
 	bCatalogInitialized = true;
 
-	
+
 	BuildSearchIndex();
 
 	UE_LOG(LogTemp, Log, TEXT("Saved %d nodes to memory catalog"), NodeCatalog.Num());
 
-	
+
 	TSharedPtr<FJsonObject> RootObject = MakeShareable(new FJsonObject);
 	RootObject->SetStringField(TEXT("version"), TEXT("bp-node-catalog/0.1"));
 	RootObject->SetArrayField(TEXT("nodes"), NodesArray);
-	
-	
+
+
 	TArray<TSharedPtr<FJsonValue>> TypesArray;
 	TSet<FString> ProcessedTypes;
 	int32 ProcessedStructs = 0;
 	int32 ProcessedClasses = 0;
-	
-	
+
+
 	for (TObjectIterator<UScriptStruct> It; It; ++It)
 	{
 		UScriptStruct* Struct = *It;
 		FString StructName = Struct->GetStructCPPName();
-		
+
 		if (ProcessedTypes.Contains(StructName))
 			continue;
-		
+
 		ProcessedTypes.Add(StructName);
-		
+
 		TSharedPtr<FJsonObject> TypeObj = MakeShareable(new FJsonObject);
 		TypeObj->SetStringField(TEXT("name"), StructName);
 		TypeObj->SetStringField(TEXT("kind"), TEXT("struct"));
-		
+
 		TArray<TSharedPtr<FJsonValue>> Props;
-		
+
 		for (TFieldIterator<FProperty> PropIt(Struct); PropIt; ++PropIt)
 		{
 			FProperty* Property = *PropIt;
-			
+
 			TSharedPtr<FJsonObject> PropObj = MakeShareable(new FJsonObject);
 			PropObj->SetStringField(TEXT("name"), Property->GetName());
-			
+
 			FString TypeName = Property->GetCPPType();
 			PropObj->SetStringField(TEXT("type"), TypeName);
-			
+
 			Props.Add(MakeShareable(new FJsonValueObject(PropObj)));
 		}
-		
+
 		TypeObj->SetArrayField(TEXT("properties"), Props);
 		TypesArray.Add(MakeShareable(new FJsonValueObject(TypeObj)));
 		ProcessedStructs++;
 	}
-	
-	
+
+
 	for (TObjectIterator<UClass> It; It; ++It)
 	{
 		UClass* Class = *It;
 		FString ClassName = Class->GetPrefixCPP() + Class->GetName();
-		
+
 		if (ProcessedTypes.Contains(ClassName))
 			continue;
-		
-		
+
+
 		if (Class->HasAnyClassFlags(CLASS_Deprecated))
 			continue;
-		
+
 		ProcessedTypes.Add(ClassName);
-		
+
 		TSharedPtr<FJsonObject> TypeObj = MakeShareable(new FJsonObject);
 		TypeObj->SetStringField(TEXT("name"), ClassName);
 		TypeObj->SetStringField(TEXT("kind"), TEXT("object"));
-		
+
 		TArray<TSharedPtr<FJsonValue>> Props;
-		
+
 		for (TFieldIterator<FProperty> PropIt(Class, EFieldIteratorFlags::ExcludeSuper); PropIt; ++PropIt)
 		{
 			FProperty* Property = *PropIt;
-			
-			
+
+
 			if (!Property->HasAnyPropertyFlags(CPF_BlueprintVisible))
 				continue;
-			
+
 			TSharedPtr<FJsonObject> PropObj = MakeShareable(new FJsonObject);
 			PropObj->SetStringField(TEXT("name"), Property->GetName());
-			
+
 			FString TypeName = Property->GetCPPType();
 			PropObj->SetStringField(TEXT("type"), TypeName);
-			
+
 			Props.Add(MakeShareable(new FJsonValueObject(PropObj)));
 		}
-		
+
 		TypeObj->SetArrayField(TEXT("properties"), Props);
 		TypesArray.Add(MakeShareable(new FJsonValueObject(TypeObj)));
 		ProcessedClasses++;
 	}
 
-	
+
 	int32 ProcessedEnums = 0;
 	for (TObjectIterator<UEnum> It; It; ++It)
 	{
 		UEnum* Enum = *It;
 		if (!Enum) continue;
 
-		
+
 		if (!Enum->HasAnyFlags(RF_Public)) continue;
 
 		FString EnumName = Enum->GetName();
@@ -1340,17 +1344,17 @@ void UWeaveOperator::GenerateWeaveLanguage()
 		TypeObj->SetStringField(TEXT("name"), EnumName);
 		TypeObj->SetStringField(TEXT("kind"), TEXT("enum"));
 
-		
+
 		TArray<TSharedPtr<FJsonValue>> ValuesArray;
 		int32 NumEnums = Enum->NumEnums();
 		for (int32 i = 0; i < NumEnums; ++i)
 		{
 			FString ValueName = Enum->GetNameStringByIndex(i);
-			
+
 			int32 ScopeIdx;
 			if (ValueName.FindLastChar(':', ScopeIdx))
 				ValueName = ValueName.Mid(ScopeIdx + 1);
-			
+
 			if (ValueName.EndsWith(TEXT("_MAX")) || ValueName == TEXT("MAX"))
 				continue;
 			ValuesArray.Add(MakeShareable(new FJsonValueString(ValueName)));
@@ -1362,23 +1366,24 @@ void UWeaveOperator::GenerateWeaveLanguage()
 	}
 
 	RootObject->SetArrayField(TEXT("types"), TypesArray);
-	
-	
+
+
 	TypeCatalog.Empty();
 	for (const TSharedPtr<FJsonValue>& TypeValue : TypesArray)
 	{
 		TypeCatalog.Add(TypeValue->AsObject());
 	}
 	bTypeCatalogInitialized = true;
-	
-	UE_LOG(LogTemp, Log, TEXT("Processed %d structs, %d classes, %d enums"), ProcessedStructs, ProcessedClasses, ProcessedEnums);
 
-	
+	UE_LOG(LogTemp, Log, TEXT("Processed %d structs, %d classes, %d enums"), ProcessedStructs, ProcessedClasses,
+	       ProcessedEnums);
+
+
 	FString OutputString;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
 	FJsonSerializer::Serialize(RootObject.ToSharedRef(), Writer);
 
-	
+
 	FString FilePath = FPaths::Combine(FPlatformProcess::UserDir(), TEXT("Desktop"), TEXT("WeaveLanguage.json"));
 	if (FFileHelper::SaveStringToFile(OutputString, *FilePath))
 	{
@@ -1394,52 +1399,50 @@ TArray<FString> UWeaveOperator::SearchNode(const FString& Query)
 {
 	TArray<FString> Results;
 	FString LowerQuery = Query.ToLower();
-	TMap<int32, int32> NodeScores;  
+	TMap<int32, int32> NodeScores;
 
-	
+
 	if (IdIndex.Contains(LowerQuery))
 	{
 		NodeScores.Add(IdIndex[LowerQuery], 100);
 	}
 
-	
+
 	for (const auto& Pair : KeywordIndex)
 	{
 		if (Pair.Key.Contains(LowerQuery))
 		{
-			
-			int32 Score = 20;  
+			int32 Score = 20;
 
 			if (Pair.Key == LowerQuery)
 			{
-				Score = 60;  
+				Score = 60;
 			}
 			else if (Pair.Key.StartsWith(LowerQuery))
 			{
-				Score = 50;  
+				Score = 50;
 			}
 			else if (Pair.Key.EndsWith(LowerQuery))
 			{
-				Score = 40;  
+				Score = 40;
 			}
 
 			for (int32 Index : Pair.Value)
 			{
-				
 				int32& CurrentScore = NodeScores.FindOrAdd(Index, 0);
 				CurrentScore = FMath::Max(CurrentScore, Score);
 			}
 		}
 	}
 
-	
+
 	TArray<TPair<int32, int32>> SortedNodes;
 	for (const auto& Pair : NodeScores)
 	{
 		int32 Index = Pair.Key;
 		int32 Score = Pair.Value;
 
-		
+
 		if (NodeCatalog.IsValidIndex(Index))
 		{
 			FString Title;
@@ -1448,7 +1451,6 @@ TArray<FString> UWeaveOperator::SearchNode(const FString& Query)
 				FString LowerTitle = Title.ToLower();
 				if (LowerTitle == LowerQuery)
 				{
-					
 					Score += 1000;
 				}
 			}
@@ -1457,30 +1459,29 @@ TArray<FString> UWeaveOperator::SearchNode(const FString& Query)
 		SortedNodes.Add(TPair<int32, int32>(Index, Score));
 	}
 
-	
+
 	SortedNodes.Sort([](const TPair<int32, int32>& A, const TPair<int32, int32>& B)
 	{
 		return A.Value > B.Value;
 	});
 
-	
+
 	int32 MaxResults = FMath::Min(10, SortedNodes.Num());
 	for (int32 i = 0; i < MaxResults; i++)
 	{
 		int32 Index = SortedNodes[i].Key;
 		if (NodeCatalog.IsValidIndex(Index))
 		{
-			
 			FString OriginalJson;
 			TSharedRef<TJsonWriter<>> OriginalWriter = TJsonWriterFactory<>::Create(&OriginalJson);
 			FJsonSerializer::Serialize(NodeCatalog[Index].ToSharedRef(), OriginalWriter);
 
-			
+
 			TSharedPtr<FJsonObject> NodeCopy;
 			TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(OriginalJson);
 			FJsonSerializer::Deserialize(Reader, NodeCopy);
 
-			
+
 			if (NodeCopy.IsValid() && NodeCopy->HasField(TEXT("search")))
 			{
 				TSharedPtr<FJsonObject> SearchObj = NodeCopy->GetObjectField(TEXT("search"));
@@ -1489,7 +1490,7 @@ TArray<FString> UWeaveOperator::SearchNode(const FString& Query)
 					SearchObj->RemoveField(TEXT("keywords"));
 				}
 
-				
+
 				FString JsonString;
 				TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
 				FJsonSerializer::Serialize(NodeCopy.ToSharedRef(), Writer);
@@ -1504,42 +1505,41 @@ TArray<FString> UWeaveOperator::SearchNode(const FString& Query)
 TArray<FString> UWeaveOperator::SearchType(const FString& Query)
 {
 	TArray<FString> Results;
-	
+
 	if (!bTypeCatalogInitialized)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Weaver] Type catalog not initialized"));
 		return Results;
 	}
-	
+
 	FString LowerQuery = Query.ToLower();
-	
-	
+
+
 	for (const TSharedPtr<FJsonObject>& TypeObj : TypeCatalog)
 	{
 		if (!TypeObj.IsValid())
 			continue;
-		
+
 		FString TypeName;
 		if (TypeObj->TryGetStringField(TEXT("name"), TypeName))
 		{
 			FString LowerTypeName = TypeName.ToLower();
-			
-			
+
+
 			if (LowerTypeName.Contains(LowerQuery))
 			{
-				
 				FString JsonString;
 				TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
 				FJsonSerializer::Serialize(TypeObj.ToSharedRef(), Writer);
 				Results.Add(JsonString);
-				
-				
+
+
 				if (Results.Num() >= 10)
 					break;
 			}
 		}
 	}
-	
+
 	return Results;
 }
 
@@ -1547,7 +1547,7 @@ TArray<FString> UWeaveOperator::SearchBlueprintVariables(const FString& Blueprin
 {
 	TArray<FString> Results;
 
-	
+
 	UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
 	if (!Blueprint)
 	{
@@ -1557,13 +1557,13 @@ TArray<FString> UWeaveOperator::SearchBlueprintVariables(const FString& Blueprin
 
 	FString LowerQuery = Query.ToLower();
 
-	
+
 	for (const FBPVariableDescription& Variable : Blueprint->NewVariables)
 	{
 		FString VarName = Variable.VarName.ToString();
 		FString LowerVarName = VarName.ToLower();
 
-		
+
 		if (LowerQuery.IsEmpty() || LowerVarName.Contains(LowerQuery))
 		{
 			TSharedPtr<FJsonObject> VarObj = MakeShareable(new FJsonObject);
@@ -1591,12 +1591,12 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 	FString LowerQuery = Query.ToLower();
 	FString BPShortName = Blueprint->GetName();
 
-	
+
 	TSet<FString> UserVarNames;
 	for (const FBPVariableDescription& Var : Blueprint->NewVariables)
 		UserVarNames.Add(Var.VarName.ToString());
 
-	
+
 	auto GetFriendlyType = [](FProperty* Prop, bool& bOutIsComponent) -> FString
 	{
 		bOutIsComponent = false;
@@ -1607,11 +1607,11 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 				bOutIsComponent = true;
 			return PropClass ? PropClass->GetName() : TEXT("Object");
 		}
-		if (CastField<FIntProperty>(Prop))    return TEXT("int");
+		if (CastField<FIntProperty>(Prop)) return TEXT("int");
 		if (CastField<FDoubleProperty>(Prop)) return TEXT("float");
-		if (CastField<FFloatProperty>(Prop))  return TEXT("float");
-		if (CastField<FBoolProperty>(Prop))   return TEXT("bool");
-		if (CastField<FStrProperty>(Prop))    return TEXT("string");
+		if (CastField<FFloatProperty>(Prop)) return TEXT("float");
+		if (CastField<FBoolProperty>(Prop)) return TEXT("bool");
+		if (CastField<FStrProperty>(Prop)) return TEXT("string");
 		if (FStructProperty* StructProp = CastField<FStructProperty>(Prop))
 			return StructProp->Struct ? StructProp->Struct->GetName() : TEXT("struct");
 		return Prop->GetCPPType();
@@ -1631,11 +1631,11 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 			Obj->SetStringField(TEXT("kind"), TEXT("component"));
 		else if (bFromParent)
 			Obj->SetStringField(TEXT("kind"), TEXT("inherited"));
-		
+
 		Obj->SetStringField(TEXT("weave_get"),
-			FString::Printf(TEXT("node x : VariableGet.%s.%s"), *BPShortName, *PropName));
+		                    FString::Printf(TEXT("node x : VariableGet.%s.%s"), *BPShortName, *PropName));
 		Obj->SetStringField(TEXT("weave_set"),
-			FString::Printf(TEXT("node x : VariableSet.%s.%s"), *BPShortName, *PropName));
+		                    FString::Printf(TEXT("node x : VariableSet.%s.%s"), *BPShortName, *PropName));
 
 		FString Json;
 		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Json);
@@ -1643,12 +1643,10 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 		return Json;
 	};
 
-	
-	
+
 	UClass* GenClass = Blueprint->GeneratedClass;
 	if (GenClass)
 	{
-		
 		for (TFieldIterator<FProperty> It(GenClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
 		{
 			FProperty* Prop = *It;
@@ -1657,7 +1655,7 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 			if (!LowerQuery.IsEmpty() && !PropName.ToLower().Contains(LowerQuery)) continue;
 			Results.Add(MakeEntry(Prop, UserVarNames.Contains(PropName), false));
 		}
-		
+
 		for (TFieldIterator<FProperty> It(GenClass->GetSuperClass()); It; ++It)
 		{
 			FProperty* Prop = *It;
@@ -1669,8 +1667,8 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 	}
 	else
 	{
-		
-		UE_LOG(LogTemp, Warning, TEXT("[Weaver] SearchContextVar: GeneratedClass is null for %s, using fallback"), *BlueprintPath);
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] SearchContextVar: GeneratedClass is null for %s, using fallback"),
+		       *BlueprintPath);
 		for (const FBPVariableDescription& Var : Blueprint->NewVariables)
 		{
 			FString VarName = Var.VarName.ToString();
@@ -1679,9 +1677,12 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 			Obj->SetStringField(TEXT("name"), VarName);
 			Obj->SetStringField(TEXT("type"), Var.VarType.PinCategory.ToString());
 			Obj->SetBoolField(TEXT("deletable"), true);
-			Obj->SetStringField(TEXT("weave_get"),  FString::Printf(TEXT("node x : VariableGet.%s.%s"),  *BPShortName, *VarName));
-			Obj->SetStringField(TEXT("weave_set"),  FString::Printf(TEXT("node x : VariableSet.%s.%s"), *BPShortName, *VarName));
-			FString Json; TSharedRef<TJsonWriter<>> W = TJsonWriterFactory<>::Create(&Json);
+			Obj->SetStringField(
+				TEXT("weave_get"), FString::Printf(TEXT("node x : VariableGet.%s.%s"), *BPShortName, *VarName));
+			Obj->SetStringField(
+				TEXT("weave_set"), FString::Printf(TEXT("node x : VariableSet.%s.%s"), *BPShortName, *VarName));
+			FString Json;
+			TSharedRef<TJsonWriter<>> W = TJsonWriterFactory<>::Create(&Json);
 			FJsonSerializer::Serialize(Obj.ToSharedRef(), W);
 			Results.Add(Json);
 		}
@@ -1690,7 +1691,8 @@ TArray<FString> UWeaveOperator::SearchContextVar(const FString& BlueprintPath, c
 	return Results;
 }
 
-bool UWeaveOperator::ModifyVar(const FString& BlueprintPath, const FString& VarName, const FString& NewValue, FString& OutError)
+bool UWeaveOperator::ModifyVar(const FString& BlueprintPath, const FString& VarName, const FString& NewValue,
+                               FString& OutError)
 {
 	UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
 	if (!Blueprint)
@@ -1699,7 +1701,7 @@ bool UWeaveOperator::ModifyVar(const FString& BlueprintPath, const FString& VarN
 		return false;
 	}
 
-	
+
 	for (FBPVariableDescription& Variable : Blueprint->NewVariables)
 	{
 		if (Variable.VarName.ToString() == VarName)
@@ -1723,7 +1725,7 @@ bool UWeaveOperator::DeleteVar(const FString& BlueprintPath, const FString& VarN
 		return false;
 	}
 
-	
+
 	FName VarFName = FName(*VarName);
 	FBlueprintEditorUtils::RemoveMemberVariable(Blueprint, VarFName);
 	return true;
@@ -1741,7 +1743,7 @@ TArray<FString> UWeaveOperator::SearchContextFunctions(const FString& BlueprintP
 
 	FString LowerQuery = Query.ToLower();
 
-	
+
 	for (UEdGraph* Graph : Blueprint->UbergraphPages)
 	{
 		if (Graph && Graph->GetName() == TEXT("UserConstructionScript"))
@@ -1763,7 +1765,7 @@ TArray<FString> UWeaveOperator::SearchContextFunctions(const FString& BlueprintP
 		}
 	}
 
-	
+
 	for (UEdGraph* Graph : Blueprint->FunctionGraphs)
 	{
 		if (!Graph) continue;
@@ -1778,7 +1780,7 @@ TArray<FString> UWeaveOperator::SearchContextFunctions(const FString& BlueprintP
 			TArray<TSharedPtr<FJsonValue>> Inputs;
 			TArray<TSharedPtr<FJsonValue>> Outputs;
 
-			
+
 			for (UEdGraphNode* Node : Graph->Nodes)
 			{
 				if (UK2Node_FunctionEntry* EntryNode = Cast<UK2Node_FunctionEntry>(Node))
@@ -1825,15 +1827,16 @@ TArray<FString> UWeaveOperator::SearchContextFunctions(const FString& BlueprintP
 TArray<FString> UWeaveOperator::SearchAsset(const FString& Query, int32 MaxResults)
 {
 	TArray<FString> Results;
-	
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<
+		FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-	
+
 	TArray<FAssetData> AssetDataList;
 	AssetRegistry.GetAllAssets(AssetDataList);
-	
+
 	FString LowerQuery = Query.ToLower();
-	
+
 	for (const FAssetData& AssetData : AssetDataList)
 	{
 		FString AssetPath = AssetData.GetObjectPathString();
@@ -1846,21 +1849,22 @@ TArray<FString> UWeaveOperator::SearchAsset(const FString& Query, int32 MaxResul
 			}
 		}
 	}
-	
+
 	return Results;
 }
 
 TArray<FString> UWeaveOperator::GetAssetReferences(const FString& AssetPath, int32 MaxResults)
 {
 	TArray<FString> Results;
-	
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<
+		FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-	
+
 	FAssetIdentifier AssetId = FAssetIdentifier(FName(*AssetPath));
 	TArray<FAssetIdentifier> Referencers;
 	AssetRegistry.GetReferencers(AssetId, Referencers);
-	
+
 	for (const FAssetIdentifier& Referencer : Referencers)
 	{
 		Results.Add(Referencer.ToString());
@@ -1869,18 +1873,17 @@ TArray<FString> UWeaveOperator::GetAssetReferences(const FString& AssetPath, int
 			break;
 		}
 	}
-	
+
 	return Results;
 }
 
 void UWeaveOperator::SearchNodeAsync(const FString& Query, TFunction<void(const TArray<FString>&)> OnComplete)
 {
-	
 	Async(EAsyncExecution::ThreadPool, [Query, OnComplete]()
 	{
 		TArray<FString> Results = SearchNode(Query);
 
-		
+
 		AsyncTask(ENamedThreads::GameThread, [Results, OnComplete]()
 		{
 			OnComplete(Results);
@@ -1983,11 +1986,12 @@ int32 UWeaveOperator::GetNodeCount()
 	return NodeCatalog.Num();
 }
 
-FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FString& GraphName, const FString& EntryNode)
+FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FString& GraphName,
+                                          const FString& EntryNode)
 {
 	UBlueprint* BP = nullptr;
 
-	
+
 	if (GEditor)
 	{
 		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
@@ -1999,7 +2003,7 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 				if (UBlueprint* Blueprint = Cast<UBlueprint>(Asset))
 				{
 					FString AssetPath = Blueprint->GetPathName();
-					
+
 					int32 ColonIndex;
 					if (AssetPath.FindChar(':', ColonIndex))
 					{
@@ -2016,7 +2020,7 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 		}
 	}
 
-	
+
 	if (!BP)
 	{
 		BP = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
@@ -2028,10 +2032,10 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 		return TEXT("");
 	}
 
-	
+
 	UEdGraph* TargetGraph = nullptr;
 
-	
+
 	for (UEdGraph* Graph : BP->UbergraphPages)
 	{
 		if (Graph && Graph->GetName().Contains(GraphName))
@@ -2041,7 +2045,7 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 		}
 	}
 
-	
+
 	if (!TargetGraph)
 	{
 		for (UEdGraph* Graph : BP->FunctionGraphs)
@@ -2060,16 +2064,15 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 		return TEXT("");
 	}
 
-	
+
 	TArray<UEdGraphNode*> AllNodes;
 
 	if (!EntryNode.IsEmpty())
 	{
-		
 		TSet<UEdGraphNode*> VisitedNodes;
 		TArray<UEdGraphNode*> NodesToVisit;
 
-		
+
 		UEdGraphNode* StartNode = nullptr;
 		for (UEdGraphNode* Node : TargetGraph->Nodes)
 		{
@@ -2084,7 +2087,7 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 		{
 			NodesToVisit.Add(StartNode);
 
-			
+
 			while (NodesToVisit.Num() > 0)
 			{
 				UEdGraphNode* CurrentNode = NodesToVisit[0];
@@ -2098,7 +2101,7 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 				VisitedNodes.Add(CurrentNode);
 				AllNodes.Add(CurrentNode);
 
-				
+
 				for (UEdGraphPin* Pin : CurrentNode->Pins)
 				{
 					if (Pin && Pin->Direction == EGPD_Output)
@@ -2121,7 +2124,6 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 	}
 	else
 	{
-		
 		for (UEdGraphNode* Node : TargetGraph->Nodes)
 		{
 			if (Node)
@@ -2131,7 +2133,7 @@ FString UWeaveOperator::GetBlueprintWeave(const FString& BlueprintPath, const FS
 		}
 	}
 
-	
+
 	FString WeaveCode;
 	if (FWeaveGenerator::Generate(AllNodes, TargetGraph, WeaveCode))
 	{
@@ -2158,10 +2160,9 @@ FString UWeaveOperator::ApplyWeaveDiff(const FString& OriginalWeave, const FStri
 	{
 		FString Line = DiffLines[DiffIndex];
 
-		
+
 		if (Line.StartsWith(TEXT("@@")))
 		{
-			
 			int32 OldStart = 0;
 			int32 Pos1 = Line.Find(TEXT("-"));
 			int32 Pos2 = Line.Find(TEXT(","), ESearchCase::IgnoreCase, ESearchDir::FromStart, Pos1);
@@ -2171,15 +2172,14 @@ FString UWeaveOperator::ApplyWeaveDiff(const FString& OriginalWeave, const FStri
 				OldStart = FCString::Atoi(*StartStr);
 			}
 
-			
+
 			while (OriginalIndex < OldStart - 1 && OriginalIndex < OriginalLines.Num())
 			{
 				ResultLines.Add(OriginalLines[OriginalIndex]);
 				OriginalIndex++;
 			}
-			
-			
-			
+
+
 			if (OriginalIndex > OldStart - 1 && OldStart > 0)
 			{
 				int32 Excess = OriginalIndex - (OldStart - 1);
@@ -2191,34 +2191,30 @@ FString UWeaveOperator::ApplyWeaveDiff(const FString& OriginalWeave, const FStri
 
 			DiffIndex++;
 
-			
+
 			while (DiffIndex < DiffLines.Num())
 			{
 				FString HunkLine = DiffLines[DiffIndex];
 
 				if (HunkLine.StartsWith(TEXT("@@")))
 				{
-					break; 
+					break;
 				}
 				else if (HunkLine.StartsWith(TEXT(" ")))
 				{
-					
 					ResultLines.Add(HunkLine.RightChop(1));
 					OriginalIndex++;
 				}
 				else if (HunkLine.StartsWith(TEXT("-")))
 				{
-					
 					OriginalIndex++;
 				}
 				else if (HunkLine.StartsWith(TEXT("+")))
 				{
-					
 					ResultLines.Add(HunkLine.RightChop(1));
 				}
 				else if (!HunkLine.IsEmpty())
 				{
-					
 					ResultLines.Add(HunkLine);
 					OriginalIndex++;
 				}
@@ -2232,14 +2228,14 @@ FString UWeaveOperator::ApplyWeaveDiff(const FString& OriginalWeave, const FStri
 		}
 	}
 
-	
+
 	while (OriginalIndex < OriginalLines.Num())
 	{
 		ResultLines.Add(OriginalLines[OriginalIndex]);
 		OriginalIndex++;
 	}
 
-	
+
 	FString Result;
 	for (const FString& Line : ResultLines)
 	{
@@ -2249,15 +2245,15 @@ FString UWeaveOperator::ApplyWeaveDiff(const FString& OriginalWeave, const FStri
 	return Result;
 }
 
-FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& GraphName, const FString& DiffCode, FString& OutError)
+FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& GraphName, const FString& DiffCode,
+                                  FString& OutError)
 {
-	
 	TArray<FString> DiffLines;
 	DiffCode.ParseIntoArrayLines(DiffLines);
-	
+
 	bool bHasDiffHeader = false;
 	bool bHasDiffPrefix = false;
-	
+
 	for (const FString& Line : DiffLines)
 	{
 		FString TrimmedLine = Line.TrimStartAndEnd();
@@ -2270,8 +2266,8 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 			bHasDiffPrefix = true;
 		}
 	}
-	
-	
+
+
 	if (!bHasDiffHeader && !bHasDiffPrefix)
 	{
 		OutError = TEXT("Diff 格式错误：必须使用标准 Unified Diff 格式\n\n")
@@ -2288,12 +2284,11 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 			TEXT("+node a : event.Actor.ReceiveBeginPlay @ (100, 0)\n");
 		return TEXT("");
 	}
-	
-	
+
+
 	FString ProcessedDiffCode = DiffCode;
 	if (!bHasDiffHeader && bHasDiffPrefix)
 	{
-		
 		int32 AddCount = 0;
 		for (const FString& Line : DiffLines)
 		{
@@ -2302,15 +2297,15 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 				AddCount++;
 			}
 		}
-		
-		
+
+
 		ProcessedDiffCode = FString::Printf(TEXT("@@ -0,0 +1,%d @@\n%s"), AddCount, *DiffCode);
 	}
-	
-	
+
+
 	FString OriginalWeave = GetBlueprintWeave(BlueprintPath, GraphName);
 
-	
+
 	FString ResultWeave = ApplyWeaveDiff(OriginalWeave, ProcessedDiffCode, OutError);
 
 	if (!OutError.IsEmpty())
@@ -2318,8 +2313,7 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 		return TEXT("");
 	}
 
-	
-	
+
 	{
 		FWeaveAST AST;
 		FString ParseError;
@@ -2329,11 +2323,9 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 			return TEXT("");
 		}
 
-		
-		
-		
+
 		{
-			TMap<FString, FString> SeenIds; 
+			TMap<FString, FString> SeenIds;
 			for (const FWeaveNodeDecl& Node : AST.Nodes)
 			{
 				if (const FString* PrevSchema = SeenIds.Find(Node.NodeId))
@@ -2350,17 +2342,15 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 			}
 		}
 
-		
-		
+
 		{
-			
 			TMap<FString, FString> IdToSchema;
 			for (const FWeaveNodeDecl& Node : AST.Nodes)
 			{
 				IdToSchema.Add(Node.NodeId, Node.SchemaId);
 			}
 
-			
+
 			auto FindCatalogNode = [&](const FString& SchemaId) -> TSharedPtr<FJsonObject>
 			{
 				for (const TSharedPtr<FJsonObject>& CatNode : NodeCatalog)
@@ -2371,7 +2361,7 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 				return nullptr;
 			};
 
-			
+
 			auto CollectPins = [](const TSharedPtr<FJsonObject>& CatNode, bool bOutput) -> TSet<FString>
 			{
 				TSet<FString> PinNames;
@@ -2380,7 +2370,7 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 					return PinNames;
 				const TSharedPtr<FJsonObject>& Pins = *PinsPtr;
 
-				
+
 				const FString ExecKey = bOutput ? TEXT("exec_out") : TEXT("exec_in");
 				const TArray<TSharedPtr<FJsonValue>>* ExecArr;
 				if (Pins->TryGetArrayField(ExecKey, ExecArr))
@@ -2389,7 +2379,7 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 						PinNames.Add(V->AsString());
 				}
 
-				
+
 				const FString DataKey = bOutput ? TEXT("outputs") : TEXT("inputs");
 				const TArray<TSharedPtr<FJsonValue>>* DataArr;
 				if (Pins->TryGetArrayField(DataKey, DataArr))
@@ -2411,17 +2401,15 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 			TArray<FString> PinWarnings;
 			for (const FWeaveLinkStmt& Link : AST.Links)
 			{
-				
 				if (const FString* FromSchema = IdToSchema.Find(Link.FromNode))
 				{
-					
 					if (FromSchema->StartsWith(TEXT("call.")) || FromSchema->StartsWith(TEXT("event.")))
 					{
 						TSharedPtr<FJsonObject> CatNode = FindCatalogNode(*FromSchema);
 						if (CatNode.IsValid())
 						{
 							TSet<FString> ValidPins = CollectPins(CatNode, /*bOutput=*/true);
-							
+
 							ValidPins.Add(TEXT("ReturnValue"));
 							if (!ValidPins.IsEmpty() && !ValidPins.Contains(Link.FromPin))
 							{
@@ -2435,7 +2423,7 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 					}
 				}
 
-				
+
 				if (const FString* ToSchema = IdToSchema.Find(Link.ToNode))
 				{
 					if (ToSchema->StartsWith(TEXT("call.")) || ToSchema->StartsWith(TEXT("event.")))
@@ -2444,7 +2432,7 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 						if (CatNode.IsValid())
 						{
 							TSet<FString> ValidPins = CollectPins(CatNode, /*bOutput=*/false);
-							
+
 							ValidPins.Add(TEXT("self"));
 							if (!ValidPins.IsEmpty() && !ValidPins.Contains(Link.ToPin))
 							{
@@ -2469,38 +2457,37 @@ FString UWeaveOperator::DiffCheck(const FString& BlueprintPath, const FString& G
 		}
 	}
 
-	
+
 	CachedBlueprintPath = BlueprintPath;
 	CachedGraphName = GraphName;
 	CachedResultWeave = ResultWeave;
 
-	
+
 	return ResultWeave;
 }
 
 bool UWeaveOperator::ApplyDiff(FString& OutError)
 {
-	
 	if (CachedBlueprintPath.IsEmpty() || CachedGraphName.IsEmpty() || CachedResultWeave.IsEmpty())
 	{
 		OutError = TEXT("错误：必须先调用 DiffCheck 预览结果");
 		return false;
 	}
-	
-	
+
+
 	bool bSuccess = ApplyWeaveToBlueprintWithUndo(CachedResultWeave, CachedBlueprintPath, CachedGraphName, OutError);
-	
-	
+
+
 	CachedBlueprintPath.Empty();
 	CachedGraphName.Empty();
 	CachedResultWeave.Empty();
-	
+
 	return bSuccess;
 }
 
-bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, const FString& BlueprintPath, const FString& GraphName, FString& OutError)
+bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, const FString& BlueprintPath,
+                                                   const FString& GraphName, FString& OutError)
 {
-	
 	UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
 	if (!BP)
 	{
@@ -2508,7 +2495,7 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 		return false;
 	}
 
-	
+
 	UEdGraph* TargetGraph = nullptr;
 	for (UEdGraph* Graph : BP->UbergraphPages)
 	{
@@ -2537,45 +2524,44 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 		return false;
 	}
 
-	
+
 	FWeaveAST AST;
 	if (!FWeaveInterpreter::Parse(WeaveCode, AST, OutError))
 	{
 		return false;
 	}
 
-	
+
 	const FScopedTransaction Transaction(FText::FromString(TEXT("Apply Weave Code")));
 	TargetGraph->Modify();
 	BP->Modify();
 
-	
+
 	TArray<UEdGraphNode*> NodesToRemove;
 	for (UEdGraphNode* Node : TargetGraph->Nodes)
 	{
 		if (Node && !Node->IsA<UK2Node_FunctionEntry>())
 		{
-			
 			Node->BreakAllNodeLinks();
 			NodesToRemove.Add(Node);
 		}
 	}
-	
+
 	for (UEdGraphNode* Node : NodesToRemove)
 	{
 		TargetGraph->Nodes.Remove(Node);
 	}
 
-	
+
 	int32 NodesCreated = FWeaveInterpreter::GenerateBlueprint(AST, TargetGraph, OutError);
 
-	
+
 	if (NodesCreated >= 0)
 	{
 		BP->MarkPackageDirty();
 		FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
-		
-		
+
+
 		FCompilerResultsLog CompileLog;
 		CompileLog.bAnnotateMentionedNodes = false;
 		CompileLog.bLogInfoOnly = false;
@@ -2591,8 +2577,8 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 				}
 			}
 		}
-		
-		
+
+
 		if (GEditor)
 		{
 			UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
@@ -2601,19 +2587,14 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 				IAssetEditorInstance* EditorInstance = AssetEditorSubsystem->FindEditorForAsset(BP, false);
 				if (EditorInstance)
 				{
-					
 					FBlueprintEditorUtils::RefreshAllNodes(BP);
 					UE_LOG(LogTemp, Log, TEXT("[Weaver] Refreshed and recompiled blueprint"));
 				}
 			}
 		}
-		
+
 		return true;
 	}
 
 	return false;
 }
-
-
-
-

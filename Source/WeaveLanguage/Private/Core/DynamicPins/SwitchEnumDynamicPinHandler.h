@@ -1,5 +1,3 @@
-
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -13,10 +11,10 @@
 class FSwitchEnumDynamicPinHandler : public IWeaverDynamicPinHandler
 {
 public:
-	virtual void PreScanLinks(const TArray<FWeaveLinkStmt>& Links, const TMap<FString, UK2Node*>& CreatedNodes) override;
+	virtual void
+	PreScanLinks(const TArray<FWeaveLinkStmt>& Links, const TMap<FString, UK2Node*>& CreatedNodes) override;
 	virtual void AddDynamicPins(const TMap<FString, UK2Node*>& CreatedNodes) override;
 
 private:
-	
 	TMap<FString, FString> SwitchEnumNodes;
 };
