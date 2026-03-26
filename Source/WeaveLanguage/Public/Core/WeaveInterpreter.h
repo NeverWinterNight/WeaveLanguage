@@ -71,6 +71,7 @@ private:
 
 	static UK2Node* CreateEventNode(UEdGraph* Graph, const FString& ClassName, const FString& EventName);
 	static UK2Node* CreateCallNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName);
+	static UK2Node* CreateMessageNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName);
 	static UK2Node* CreateMacroNode(UEdGraph* Graph, const FString& MacroPath, const FString& MacroName);
 	static UK2Node* CreateBranchNode(UEdGraph* Graph);
 	static UK2Node* CreateSequenceNode(UEdGraph* Graph);
