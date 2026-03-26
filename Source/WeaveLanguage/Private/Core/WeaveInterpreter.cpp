@@ -3,6 +3,7 @@
 #include "EdGraphSchema_K2.h"
 #include "K2Node_Event.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_Message.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_IfThenElse.h"
 #include "K2Node_ExecutionSequence.h"
@@ -757,9 +758,28 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			{
 				NewNode = CreateEventNode(Graph, ClassName, FunctionName);
 			}
+			else if (NodeKind == TEXT("message"))
+			{
+				NewNode = CreateMessageNode(Graph, ClassName, FunctionName);
+			}
 			else if (NodeKind == TEXT("call"))
 			{
-				NewNode = CreateCallNode(Graph, ClassName, FunctionName);
+				// 兼容旧脚本：如果脚本引用了 Target 引脚（典型的接口消息节点），优先还原为 UK2Node_Message。
+				const bool bWantsTargetPin = AST.Links.ContainsByPredicate([&NodeDecl](const FWeaveLinkStmt& L)
+				{
+					return (L.ToNode == NodeDecl.NodeId && L.ToPin == TEXT("Target")) || (L.FromNode == NodeDecl.NodeId && L.FromPin == TEXT("Target"));
+				}) || AST.Sets.ContainsByPredicate([&NodeDecl](const FWeaveSetStmt& S)
+				{
+					return (S.NodeId == NodeDecl.NodeId && S.PinName == TEXT("Target"));
+				});
+				if (bWantsTargetPin)
+				{
+					NewNode = CreateMessageNode(Graph, ClassName, FunctionName);
+				}
+				if (!NewNode)
+				{
+					NewNode = CreateCallNode(Graph, ClassName, FunctionName);
+				}
 			}
 			else if (NodeKind == TEXT("macro"))
 			{
@@ -1468,6 +1488,89 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 	return CallNode;
 }
 
+
+UK2Node* FWeaveInterpreter::CreateMessageNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName)
+{
+	UK2Node_Message* MessageNode = Graph->CreateIntermediateNode<UK2Node_Message>();
+	if (!MessageNode)
+	{
+		return nullptr;
+	}
+
+	MessageNode->CreateNewGuid();
+
+	static const TMap<FString, FString> FuncNameTranslation = {
+		{TEXT("Conv_FloatToString"), TEXT("Conv_DoubleToString")},
+		{TEXT("Conv_FloatToInt"), TEXT("Conv_DoubleToInt")},
+		{TEXT("Conv_FloatToBool"), TEXT("Conv_DoubleToBool")},
+		{TEXT("Conv_FloatToVector"), TEXT("Conv_DoubleToVector")},
+		{TEXT("Conv_FloatToVector2D"), TEXT("Conv_DoubleToVector2D")},
+		{TEXT("Conv_IntToFloat"), TEXT("Conv_IntToDouble")},
+		{TEXT("Conv_ByteToFloat"), TEXT("Conv_ByteToDouble")},
+		{TEXT("Conv_BoolToFloat"), TEXT("Conv_BoolToDouble")},
+		{TEXT("FMin"), TEXT("Min")},
+		{TEXT("FMax"), TEXT("Max")},
+		{TEXT("FClamp"), TEXT("Clamp_Float")},
+	};
+
+	FString ResolvedFunctionName = FunctionName;
+	if (const FString* Translated = FuncNameTranslation.Find(FunctionName))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Weaver] Translating function name: %s -> %s"), *FunctionName, **Translated);
+		ResolvedFunctionName = *Translated;
+	}
+
+	FString FullClassName = ClassName;
+	if (ClassName == TEXT("KismetSystemLibrary"))
+	{
+		FullClassName = TEXT("/Script/Engine.KismetSystemLibrary");
+	}
+	else if (ClassName == TEXT("KismetMathLibrary"))
+	{
+		FullClassName = TEXT("/Script/Engine.KismetMathLibrary");
+	}
+	else if (ClassName == TEXT("KismetStringLibrary"))
+	{
+		FullClassName = TEXT("/Script/Engine.KismetStringLibrary");
+	}
+	else if (ClassName == TEXT("GameplayStatics"))
+	{
+		FullClassName = TEXT("/Script/Engine.GameplayStatics");
+	}
+
+	UClass* TargetClass = nullptr;
+	if (FullClassName.StartsWith(TEXT("/")))
+	{
+		TargetClass = LoadObject<UClass>(nullptr, *FullClassName);
+	}
+	if (!TargetClass)
+	{
+		TargetClass = UClass::TryFindTypeSlow<UClass>(*FullClassName);
+	}
+	if (!TargetClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] Class not found: %s"), *FullClassName);
+		return nullptr;
+	}
+
+	if (!TargetClass->HasAnyClassFlags(CLASS_Interface))
+	{
+		// 不是接口类就不创建 Message 节点（避免错误还原）。
+		return nullptr;
+	}
+
+	UFunction* Function = TargetClass->FindFunctionByName(*ResolvedFunctionName);
+	if (!Function)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] Function not found: %s::%s"), *FullClassName, *ResolvedFunctionName);
+		return nullptr;
+	}
+
+	MessageNode->SetFromFunction(Function);
+	MessageNode->AllocateDefaultPins();
+	MessageNode->ReconstructNode();
+	return MessageNode;
+}
 UK2Node* FWeaveInterpreter::CreateMacroNode(UEdGraph* Graph, const FString& MacroPath, const FString& MacroName)
 {
 	UK2Node_MacroInstance* MacroNode = Graph->CreateIntermediateNode<UK2Node_MacroInstance>();
@@ -1759,7 +1862,26 @@ UK2Node* FWeaveInterpreter::CreateSwitchEnumNode(UEdGraph* Graph, const FString&
 	{
 		SwitchNode->CreateNewGuid();
 
-		SwitchNode->SetEnum(TargetEnum);
+		// 直接设置 public UPROPERTY 成员，绕开 SetEnum（该函数在某些版本仍可能因 MinimalAPI 未导出导致跨模块链接失败）
+		SwitchNode->Enum = TargetEnum;
+		SwitchNode->EnumEntries.Empty();
+		SwitchNode->EnumFriendlyNames.Empty();
+		if (TargetEnum)
+		{
+			const int32 NumEnums = TargetEnum->NumEnums();
+			for (int32 EnumIndex = 0; EnumIndex < NumEnums; ++EnumIndex)
+			{
+				if (!TargetEnum->HasMetaData(TEXT("Hidden"), EnumIndex) && !TargetEnum->HasMetaData(TEXT("Spacer"), EnumIndex))
+				{
+					const FString EnumValueName = TargetEnum->GetNameStringByIndex(EnumIndex);
+					if (!EnumValueName.IsEmpty())
+					{
+						SwitchNode->EnumEntries.Add(FName(*EnumValueName));
+						SwitchNode->EnumFriendlyNames.Add(TargetEnum->GetDisplayNameTextByIndex(EnumIndex));
+					}
+				}
+			}
+		}
 		SwitchNode->ReconstructNode();
 	}
 	return SwitchNode;

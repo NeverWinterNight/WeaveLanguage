@@ -5,6 +5,7 @@
 #include "K2Node.h"
 #include "K2Node_Event.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_Message.h"
 #include "K2Node_MathExpression.h"
 #include "K2Node_MakeStruct.h"
 #include "K2Node_BreakStruct.h"
@@ -318,6 +319,25 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 		}
 
 		return FString::Printf(TEXT("event.%s.%s"), *ClassName, *EventNode->EventReference.GetMemberName().ToString());
+	}
+	else if (const UK2Node_Message* MessageNode = Cast<UK2Node_Message>(Node))
+	{
+		if (const UFunction* Function = MessageNode->GetTargetFunction())
+		{
+			const UClass* OwnerClass = Function->GetOwnerClass();
+			FString ClassName = OwnerClass ? OwnerClass->GetName() : TEXT("Unknown");
+			if (ClassName.Len() > 1)
+			{
+				TCHAR FirstChar = ClassName[0];
+				TCHAR SecondChar = ClassName[1];
+
+				if ((FirstChar == TEXT('U') || FirstChar == TEXT('A')) && FChar::IsUpper(SecondChar))
+				{
+					ClassName = ClassName.RightChop(1);
+				}
+			}
+			return FString::Printf(TEXT("message.%s.%s"), *ClassName, *Function->GetName());
+		}
 	}
 	else if (const UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(Node))
 	{
