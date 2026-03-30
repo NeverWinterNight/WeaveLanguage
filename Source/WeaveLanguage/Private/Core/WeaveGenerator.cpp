@@ -18,6 +18,23 @@
 #include "K2Node_DynamicCast.h"
 #include "K2Node_MacroInstance.h"
 
+namespace
+{
+	FString StripUEClassPrefix(const FString& ClassName)
+	{
+		if (ClassName.Len() > 1)
+		{
+			const TCHAR First = ClassName[0];
+			const TCHAR Second = ClassName[1];
+			if ((First == TEXT('U') || First == TEXT('A')) && FChar::IsUpper(Second))
+			{
+				return ClassName.RightChop(1);
+			}
+		}
+		return ClassName;
+	}
+}
+
 bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGraph* Graph, FString& OutWeaveCode)
 {
 	if (!Graph || SelectedNodes.Num() == 0)
@@ -46,53 +63,79 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 	Code += FString::Printf(TEXT("graph %s\n\n"), *Graph->GetName());
 
 
-	auto PinTypeToWeaveName = [](const UEdGraphPin* Pin) -> FString
+	auto ClassToWeaveName = [](UClass* C) -> FString
 	{
-		FString Cat = Pin->PinType.PinCategory.ToString();
+		if (const UBlueprintGeneratedClass* BPGC = Cast<UBlueprintGeneratedClass>(C))
+		{
+			if (const UBlueprint* BP = Cast<UBlueprint>(BPGC->ClassGeneratedBy))
+				return BP->GetPathName();
+		}
+		return C->GetPrefixCPP() + C->GetName();
+	};
+
+	// 基础类型名解析（不含容器前缀）
+	auto PinTypeToWeaveNameBase = [&ClassToWeaveName](const FEdGraphPinType& PinType) -> FString
+	{
+		FString Cat = PinType.PinCategory.ToString();
 		if (Cat == TEXT("bool")) return TEXT("bool");
 		if (Cat == TEXT("int")) return TEXT("int");
 		if (Cat == TEXT("int64")) return TEXT("int64");
 		if (Cat == TEXT("real"))
 		{
-			return (Pin->PinType.PinSubCategory == UEdGraphSchema_K2::PC_Double)
+			return (PinType.PinSubCategory == UEdGraphSchema_K2::PC_Double)
 				       ? TEXT("double")
 				       : TEXT("float");
 		}
 		if (Cat == TEXT("string")) return TEXT("string");
 		if (Cat == TEXT("text")) return TEXT("text");
 		if (Cat == TEXT("name")) return TEXT("name");
-		if (Cat == TEXT("struct") && Pin->PinType.PinSubCategoryObject.IsValid())
+		if (Cat == TEXT("struct") && PinType.PinSubCategoryObject.IsValid())
 		{
-			if (const UScriptStruct* S = Cast<UScriptStruct>(Pin->PinType.PinSubCategoryObject.Get()))
+			if (const UScriptStruct* S = Cast<UScriptStruct>(PinType.PinSubCategoryObject.Get()))
 				return S->GetName();
 		}
-		if (Cat == TEXT("byte") && Pin->PinType.PinSubCategoryObject.IsValid())
+		if (Cat == TEXT("byte") && PinType.PinSubCategoryObject.IsValid())
 		{
-			if (const UEnum* E = Cast<UEnum>(Pin->PinType.PinSubCategoryObject.Get()))
+			if (const UEnum* E = Cast<UEnum>(PinType.PinSubCategoryObject.Get()))
 				return E->GetName();
 		}
-
-
-		auto ClassToWeaveName = [](UClass* C) -> FString
+		if (Cat == TEXT("object") && PinType.PinSubCategoryObject.IsValid())
 		{
-			if (const UBlueprintGeneratedClass* BPGC = Cast<UBlueprintGeneratedClass>(C))
-			{
-				if (const UBlueprint* BP = Cast<UBlueprint>(BPGC->ClassGeneratedBy))
-					return BP->GetPathName();
-			}
-			return C->GetPrefixCPP() + C->GetName();
-		};
-		if (Cat == TEXT("object") && Pin->PinType.PinSubCategoryObject.IsValid())
-		{
-			if (UClass* C = Cast<UClass>(Pin->PinType.PinSubCategoryObject.Get()))
+			if (UClass* C = Cast<UClass>(PinType.PinSubCategoryObject.Get()))
 				return ClassToWeaveName(C);
 		}
-		if (Cat == TEXT("class") && Pin->PinType.PinSubCategoryObject.IsValid())
+		if (Cat == TEXT("class") && PinType.PinSubCategoryObject.IsValid())
 		{
-			if (UClass* C = Cast<UClass>(Pin->PinType.PinSubCategoryObject.Get()))
+			if (UClass* C = Cast<UClass>(PinType.PinSubCategoryObject.Get()))
 				return TEXT("class:") + ClassToWeaveName(C);
 		}
 		return Cat;
+	};
+
+	// 完整类型名解析（含容器前缀 array:/set:/map:）
+	auto PinTypeToWeaveName = [&PinTypeToWeaveNameBase](const UEdGraphPin* Pin) -> FString
+	{
+		const FEdGraphPinType& PinType = Pin->PinType;
+		FString ElementType = PinTypeToWeaveNameBase(PinType);
+
+		if (PinType.ContainerType == EPinContainerType::Array)
+		{
+			return TEXT("array:") + ElementType;
+		}
+		if (PinType.ContainerType == EPinContainerType::Set)
+		{
+			return TEXT("set:") + ElementType;
+		}
+		if (PinType.ContainerType == EPinContainerType::Map)
+		{
+			FEdGraphPinType ValType;
+			ValType.PinCategory = PinType.PinValueType.TerminalCategory;
+			ValType.PinSubCategory = PinType.PinValueType.TerminalSubCategory;
+			ValType.PinSubCategoryObject = PinType.PinValueType.TerminalSubCategoryObject;
+			FString ValueTypeName = PinTypeToWeaveNameBase(ValType);
+			return TEXT("map:") + ElementType + TEXT(":") + ValueTypeName;
+		}
+		return ElementType;
 	};
 
 	TMap<FString, FString> Variables;
@@ -266,6 +309,7 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 					DefaultValue != TEXT("false") &&
 					DefaultValue != TEXT("None"))
 				{
+						if (PinName.Contains(TEXT(" "))) 						{ 							PinName = FString::Printf(TEXT("\"%s\""), *PinName); 						}
 					Code += FString::Printf(TEXT("set %s.%s = %s\n"), *NodeId, *PinName, *DefaultValue);
 					EmittedPins.Add(Pin->PinName);
 				}
@@ -304,38 +348,30 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 	if (UK2Node_Event* EventNode = Cast<UK2Node_Event>(Node))
 	{
 		UClass* OwnerClass = EventNode->EventReference.GetMemberParentClass();
-		FString ClassName = OwnerClass ? OwnerClass->GetName() : TEXT("Unknown");
-
-
-		if (ClassName.Len() > 1)
+		if (!OwnerClass)
 		{
-			TCHAR FirstChar = ClassName[0];
-			TCHAR SecondChar = ClassName[1];
-
-			if ((FirstChar == TEXT('U') || FirstChar == TEXT('A')) && FChar::IsUpper(SecondChar))
+			if (const UBlueprint* BP = Node->GetTypedOuter<UBlueprint>())
 			{
-				ClassName = ClassName.RightChop(1);
+				OwnerClass = BP->GeneratedClass ? BP->GeneratedClass : BP->SkeletonGeneratedClass;
 			}
 		}
+		FString ClassName = OwnerClass ? StripUEClassPrefix(OwnerClass->GetName()) : TEXT("Unknown");
 
-		return FString::Printf(TEXT("event.%s.%s"), *ClassName, *EventNode->EventReference.GetMemberName().ToString());
+		FString EventName = EventNode->EventReference.GetMemberName().ToString();
+		if (EventName.IsEmpty() || EventName == TEXT("None"))
+		{
+			EventName = EventNode->GetFunctionName().ToString();
+		}
+
+		return FString::Printf(TEXT("event.%s.%s"), *ClassName, *EventName);
 	}
 	else if (const UK2Node_Message* MessageNode = Cast<UK2Node_Message>(Node))
 	{
 		if (const UFunction* Function = MessageNode->GetTargetFunction())
 		{
 			const UClass* OwnerClass = Function->GetOwnerClass();
-			FString ClassName = OwnerClass ? OwnerClass->GetName() : TEXT("Unknown");
-			if (ClassName.Len() > 1)
-			{
-				TCHAR FirstChar = ClassName[0];
-				TCHAR SecondChar = ClassName[1];
+			FString ClassName = OwnerClass ? StripUEClassPrefix(OwnerClass->GetName()) : TEXT("Unknown");
 
-				if ((FirstChar == TEXT('U') || FirstChar == TEXT('A')) && FChar::IsUpper(SecondChar))
-				{
-					ClassName = ClassName.RightChop(1);
-				}
-			}
 			return FString::Printf(TEXT("message.%s.%s"), *ClassName, *Function->GetName());
 		}
 	}
@@ -344,19 +380,7 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 		if (const UFunction* Function = CallNode->GetTargetFunction())
 		{
 			const UClass* OwnerClass = Function->GetOwnerClass();
-			FString ClassName = OwnerClass ? OwnerClass->GetName() : TEXT("Unknown");
-
-
-			if (ClassName.Len() > 1)
-			{
-				TCHAR FirstChar = ClassName[0];
-				TCHAR SecondChar = ClassName[1];
-
-				if ((FirstChar == TEXT('U') || FirstChar == TEXT('A')) && FChar::IsUpper(SecondChar))
-				{
-					ClassName = ClassName.RightChop(1);
-				}
-			}
+			FString ClassName = OwnerClass ? StripUEClassPrefix(OwnerClass->GetName()) : TEXT("Unknown");
 
 			return FString::Printf(TEXT("call.%s.%s"), *ClassName, *Function->GetName());
 		}
@@ -365,7 +389,7 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 	{
 		const FName VarName = VarGetNode->GetVarName();
 		const UClass* OwnerClass = VarGetNode->VariableReference.GetMemberParentClass();
-
+		bool bIsSelfMember = VarGetNode->VariableReference.IsSelfContext();
 
 		if (!OwnerClass)
 		{
@@ -377,8 +401,18 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 
 		if (OwnerClass)
 		{
+			// 外部类使用完整路径以确保 Interpreter 能可靠加载
+			FString ClassName;
+			if (bIsSelfMember)
+			{
+				ClassName = OwnerClass->GetName();
+			}
+			else
+			{
+				ClassName = OwnerClass->GetPathName();
+			}
 			return FString::Printf(TEXT("VariableGet.%s.%s"),
-			                       *OwnerClass->GetName(), *VarName.ToString());
+			                       *ClassName, *VarName.ToString());
 		}
 		return FString::Printf(TEXT("VariableGet.%s"), *VarName.ToString());
 	}
@@ -386,7 +420,7 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 	{
 		const FName VarName = VarSetNode->GetVarName();
 		const UClass* OwnerClass = VarSetNode->VariableReference.GetMemberParentClass();
-
+		bool bIsSelfMember = VarSetNode->VariableReference.IsSelfContext();
 
 		if (!OwnerClass)
 		{
@@ -398,8 +432,17 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 
 		if (OwnerClass)
 		{
+			FString ClassName;
+			if (bIsSelfMember)
+			{
+				ClassName = OwnerClass->GetName();
+			}
+			else
+			{
+				ClassName = OwnerClass->GetPathName();
+			}
 			return FString::Printf(TEXT("VariableSet.%s.%s"),
-			                       *OwnerClass->GetName(), *VarName.ToString());
+			                       *ClassName, *VarName.ToString());
 		}
 		return FString::Printf(TEXT("VariableSet.%s"), *VarName.ToString());
 	}
@@ -458,17 +501,9 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 		{
 			if (CastNode->TargetType)
 			{
-				FString TypeName = CastNode->TargetType->GetName();
-				if (TypeName.Len() > 1)
-				{
-					const TCHAR First = TypeName[0];
-					if (const TCHAR Second = TypeName[1]; (First == TEXT('A') || First == TEXT('U')) && FChar::IsUpper(
-						Second))
-					{
-						TypeName = TypeName.RightChop(1);
-					}
-				}
-				return FString::Printf(TEXT("special.Cast.%s"), *TypeName);
+				// 使用完整路径名以确保 Interpreter 能可靠加载类
+				FString TypePath = CastNode->TargetType->GetPathName();
+				return FString::Printf(TEXT("special.Cast.%s"), *TypePath);
 			}
 		}
 		return TEXT("special.Cast");
@@ -497,5 +532,16 @@ FString FWeaveGenerator::GetNodeSchemaId(UEdGraphNode* Node)
 		}
 	}
 
+	else if (ClassName == TEXT("K2Node_GetArrayItem"))
+	{
+		return TEXT("special.GetArrayItem");
+	}
+	else if (ClassName == TEXT("K2Node_Knot"))
+	{
+		return TEXT("special.Knot");
+	}
+
 	return ClassName;
 }
+
+

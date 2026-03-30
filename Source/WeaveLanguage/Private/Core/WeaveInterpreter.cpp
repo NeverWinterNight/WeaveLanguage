@@ -2,6 +2,7 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
 #include "K2Node_Event.h"
+#include "K2Node_CustomEvent.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_Message.h"
 #include "K2Node_MacroInstance.h"
@@ -22,6 +23,58 @@
 #include "K2Node_SpawnActorFromClass.h"
 #include "K2Node_ConstructObjectFromClass.h"
 #include "K2Node_DynamicCast.h"
+#include "K2Node_GetArrayItem.h"
+#include "K2Node_Knot.h"
+#include "ScopedTransaction.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "UObject/UObjectIterator.h"
+
+// 通过名称查找 UClass，支持完整路径名和短名称
+static UClass* FindClassByShortName(const FString& ClassName)
+{
+	// 如果是完整路径（如 /Script/ModuleName.ClassName），优先用 LoadObject 加载
+	if (ClassName.StartsWith(TEXT("/")))
+	{
+		UClass* Result = LoadObject<UClass>(nullptr, *ClassName);
+		if (Result) return Result;
+	}
+
+	// 尝试 TryFindTypeSlow（适用于完整路径名或已加载的短名称）
+	UClass* Result = UClass::TryFindTypeSlow<UClass>(*ClassName);
+	if (Result) return Result;
+
+	// 尝试加前缀
+	Result = UClass::TryFindTypeSlow<UClass>(*(TEXT("A") + ClassName));
+	if (Result) return Result;
+	Result = UClass::TryFindTypeSlow<UClass>(*(TEXT("U") + ClassName));
+	if (Result) return Result;
+
+	// TObjectIterator 兜底：按 GetName() 匹配（仅对已加载的类有效）
+	for (TObjectIterator<UClass> It; It; ++It)
+	{
+		UClass* Candidate = *It;
+		if (Candidate->GetName() == ClassName)
+		{
+			return Candidate;
+		}
+	}
+
+	return nullptr;
+}
+
+namespace
+{
+	template <typename T>
+	T* SpawnEditorNode(UEdGraph* Graph)
+	{
+		T* Node = Graph->CreateIntermediateNode<T>();
+		if (Node)
+		{
+			Node->CreateNewGuid();
+		}
+		return Node;
+	}
+}
 
 bool FWeaveInterpreter::Parse(const FString& WeaveCode, FWeaveAST& OutAST, FString& OutError)
 {
@@ -332,6 +385,10 @@ bool FWeaveInterpreter::ParseSet(const TArray<FString>& Tokens, int32& Index, FW
 		return false;
 	}
 	OutSet.PinName = Tokens[Index++];
+	if (OutSet.PinName.StartsWith(TEXT("\"")) && OutSet.PinName.EndsWith(TEXT("\"")) && OutSet.PinName.Len() >= 2)
+	{
+		OutSet.PinName = OutSet.PinName.Mid(1, OutSet.PinName.Len() - 2);
+	}
 
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("="))
 	{
@@ -386,6 +443,10 @@ bool FWeaveInterpreter::ParseLink(const TArray<FString>& Tokens, int32& Index, F
 		return false;
 	}
 	OutLink.FromPin = Tokens[Index++];
+	if (OutLink.FromPin.StartsWith(TEXT("\"")) && OutLink.FromPin.EndsWith(TEXT("\"")) && OutLink.FromPin.Len() >= 2)
+	{
+		OutLink.FromPin = OutLink.FromPin.Mid(1, OutLink.FromPin.Len() - 2);
+	}
 
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("->"))
 	{
@@ -410,6 +471,10 @@ bool FWeaveInterpreter::ParseLink(const TArray<FString>& Tokens, int32& Index, F
 		return false;
 	}
 	OutLink.ToPin = Tokens[Index++];
+	if (OutLink.ToPin.StartsWith(TEXT("\"")) && OutLink.ToPin.EndsWith(TEXT("\"")) && OutLink.ToPin.Len() >= 2)
+	{
+		OutLink.ToPin = OutLink.ToPin.Mid(1, OutLink.ToPin.Len() - 2);
+	}
 
 	return true;
 }
@@ -438,14 +503,69 @@ bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FW
 	{
 		return false;
 	}
-	Index++;
+	Index++; // 跳过 ":"
 
 	if (Index >= Tokens.Num())
 	{
 		return false;
 	}
 
-	OutVar.VarType = Tokens[Index++];
+	FString TypeToken = Tokens[Index++];
+
+	// 检查是否为容器类型前缀：array、set、map
+	if (TypeToken == TEXT("array") || TypeToken == TEXT("set"))
+	{
+		OutVar.ContainerType = (TypeToken == TEXT("array"))
+			? EPinContainerType::Array
+			: EPinContainerType::Set;
+
+		// 期望 ":" 和元素类型
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(":"))
+		{
+			return false;
+		}
+		Index++; // 跳过 ":"
+
+		if (Index >= Tokens.Num())
+		{
+			return false;
+		}
+		OutVar.VarType = Tokens[Index++];
+	}
+	else if (TypeToken == TEXT("map"))
+	{
+		OutVar.ContainerType = EPinContainerType::Map;
+
+		// 期望 ":" KeyType ":" ValueType
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(":"))
+		{
+			return false;
+		}
+		Index++; // 跳过 ":"
+
+		if (Index >= Tokens.Num())
+		{
+			return false;
+		}
+		OutVar.VarType = Tokens[Index++]; // Key 类型
+
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(":"))
+		{
+			return false;
+		}
+		Index++; // 跳过 ":"
+
+		if (Index >= Tokens.Num())
+		{
+			return false;
+		}
+		OutVar.ValueType = Tokens[Index++]; // Value 类型
+	}
+	else
+	{
+		OutVar.ContainerType = EPinContainerType::None;
+		OutVar.VarType = TypeToken;
+	}
 
 	return true;
 }
@@ -458,6 +578,9 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		OutError = TEXT("Invalid graph");
 		return 0;
 	}
+
+	FScopedTransaction Transaction(NSLOCTEXT("WeaveLanguage", "GenerateBlueprint", "Weave Generate Blueprint"));
+	Graph->Modify();
 
 	UE_LOG(LogTemp, Log, TEXT("[Weaver] Generating blueprint for graph: %s"), *AST.GraphName);
 	UE_LOG(LogTemp, Log, TEXT("[Weaver] Vars: %d, Nodes: %d, Sets: %d, Links: %d"), AST.Vars.Num(), AST.Nodes.Num(),
@@ -656,12 +779,68 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				}
 
 
+				// 设置容器类型
+				PinType.ContainerType = VarDecl.ContainerType;
+				if (VarDecl.ContainerType == EPinContainerType::Map)
+				{
+					// 解析 Map 的 Value 类型到 PinValueType
+					const FString& ValTypeStr = VarDecl.ValueType;
+					if (ValTypeStr == TEXT("bool")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Boolean; }
+					else if (ValTypeStr == TEXT("int")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Int; }
+					else if (ValTypeStr == TEXT("int64")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Int64; }
+					else if (ValTypeStr == TEXT("float")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Real; PinType.PinValueType.TerminalSubCategory = UEdGraphSchema_K2::PC_Float; }
+					else if (ValTypeStr == TEXT("double")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Real; PinType.PinValueType.TerminalSubCategory = UEdGraphSchema_K2::PC_Double; }
+					else if (ValTypeStr == TEXT("string")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_String; }
+					else if (ValTypeStr == TEXT("text")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Text; }
+					else if (ValTypeStr == TEXT("name")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Name; }
+					else if (ValTypeStr == TEXT("byte")) { PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Byte; }
+					else
+					{
+						// 尝试 struct / enum / class 解析
+						bool bValResolved = false;
+						for (TObjectIterator<UScriptStruct> It; It && !bValResolved; ++It)
+						{
+							if (It->GetName() == ValTypeStr)
+							{
+								PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Struct;
+								PinType.PinValueType.TerminalSubCategoryObject = *It;
+								bValResolved = true;
+							}
+						}
+						for (TObjectIterator<UEnum> It; It && !bValResolved; ++It)
+						{
+							if (It->GetName() == ValTypeStr)
+							{
+								PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Byte;
+								PinType.PinValueType.TerminalSubCategoryObject = *It;
+								bValResolved = true;
+							}
+						}
+						for (TObjectIterator<UClass> It; It && !bValResolved; ++It)
+						{
+							if (It->GetPrefixCPP() + It->GetName() == ValTypeStr)
+							{
+								PinType.PinValueType.TerminalCategory = UEdGraphSchema_K2::PC_Object;
+								PinType.PinValueType.TerminalSubCategoryObject = *It;
+								bValResolved = true;
+							}
+						}
+						if (!bValResolved)
+						{
+							UE_LOG(LogTemp, Warning, TEXT("[Weaver] Unknown map value type: %s"), *ValTypeStr);
+						}
+					}
+				}
+
 				FName VarName = FName(*VarDecl.VarName);
 				FBlueprintEditorUtils::AddMemberVariable(Blueprint, VarName, PinType);
 
-				UE_LOG(LogTemp, Log, TEXT("[Weaver] Created variable: %s (%s)"), *VarDecl.VarName, *VarDecl.VarType);
+				UE_LOG(LogTemp, Log, TEXT("[Weaver] Created variable: %s (%s, container=%d)"), *VarDecl.VarName, *VarDecl.VarType, (int32)VarDecl.ContainerType);
 			}
 		}
+
+		// 编译蓝图骨架，确保新变量的 FProperty 可用于后续节点的 AllocateDefaultPins
+		FKismetEditorUtilities::CompileBlueprint(Blueprint);
 	}
 
 
@@ -731,13 +910,26 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			}
 			else if (NodeType == TEXT("Cast") && Parts.Num() >= 3)
 			{
+				// Parts[2:] 可能是完整路径（含 .），需要拼接回来
 				FString TargetTypeName = Parts[2];
+				for (int32 p = 3; p < Parts.Num(); ++p)
+				{
+					TargetTypeName += TEXT(".") + Parts[p];
+				}
 				NewNode = CreateDynamicCastNode(Graph, TargetTypeName);
 			}
 			else if (NodeType == TEXT("SwitchEnum") && Parts.Num() >= 3)
 			{
 				FString EnumName = Parts[2];
 				NewNode = CreateSwitchEnumNode(Graph, EnumName);
+			}
+			else if (NodeType == TEXT("GetArrayItem"))
+			{
+				NewNode = CreateGetArrayItemNode(Graph);
+			}
+			else if (NodeType == TEXT("Knot"))
+			{
+				NewNode = CreateKnotNode(Graph);
 			}
 		}
 		else if (Parts.Num() < 3)
@@ -810,40 +1002,89 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			}
 			else if (NodeKind == TEXT("VariableGet") || NodeKind == TEXT("VariableSet"))
 			{
-				bool bVarExists = false;
+				// 对于外部类，路径可能包含多个 .（如 /Script/Module.ClassName.VarName）
+				// 最后一段是变量名，前面的拼接回来是类名
+				if (Parts.Num() > 3)
+				{
+					// 重新构建 ClassName：Parts[1] 到 Parts[Num-2] 拼接
+					ClassName = Parts[1];
+					for (int32 p = 2; p < Parts.Num() - 1; ++p)
+					{
+						ClassName += TEXT(".") + Parts[p];
+					}
+					FunctionName = Parts.Last();
+				}
+
+				// 判断是自身变量还是外部类成员变量
+				bool bIsSelfVar = false;
+				bool bIsExternalVar = false;
+				UClass* ExternalClass = nullptr;
+
+				// 检查是否为当前蓝图自身变量
 				if (Blueprint)
 				{
-					UClass* GenClass = Blueprint->GeneratedClass;
-					if (GenClass)
+					FString BPClassName;
+					if (Blueprint->GeneratedClass)
 					{
-						FProperty* Prop = GenClass->FindPropertyByName(FName(*FunctionName));
-						bVarExists = (Prop != nullptr);
+						BPClassName = Blueprint->GeneratedClass->GetName();
+					}
+
+					if (ClassName == BPClassName || ClassName.IsEmpty())
+					{
+						// 属于当前蓝图
+						UClass* GenClass = Blueprint->GeneratedClass;
+						if (GenClass)
+						{
+							FProperty* Prop = GenClass->FindPropertyByName(FName(*FunctionName));
+							bIsSelfVar = (Prop != nullptr);
+						}
+						if (!bIsSelfVar)
+						{
+							for (const FBPVariableDescription& ExistingVar : Blueprint->NewVariables)
+							{
+								if (ExistingVar.VarName.ToString() == FunctionName)
+								{
+									bIsSelfVar = true;
+									break;
+								}
+							}
+						}
+						if (!bIsSelfVar)
+						{
+							for (const FWeaveVarDecl& VarDecl : AST.Vars)
+							{
+								if (VarDecl.VarName == FunctionName)
+								{
+									bIsSelfVar = true;
+									break;
+								}
+							}
+						}
 					}
 					else
 					{
-						for (const FBPVariableDescription& ExistingVar : Blueprint->NewVariables)
+						// ClassName 不是当前蓝图类，视为外部类成员变量
+						ExternalClass = FindClassByShortName(ClassName);
+						if (ExternalClass)
 						{
-							if (ExistingVar.VarName.ToString() == FunctionName)
+							bIsExternalVar = true;
+						}
+						else
+						{
+							// 类未找到，但仍然尝试作为外部变量处理
+							// 先将 ClassName 作为蓝图路径尝试加载
+							UE_LOG(LogTemp, Warning, TEXT("[Weaver] External class not found: %s, trying as self var"), *ClassName);
+							// 回退：检查是否为本蓝图变量（可能 Generator 输出的类名不匹配）
+							if (Blueprint && Blueprint->GeneratedClass)
 							{
-								bVarExists = true;
-								break;
+								FProperty* Prop = Blueprint->GeneratedClass->FindPropertyByName(FName(*FunctionName));
+								bIsSelfVar = (Prop != nullptr);
 							}
 						}
 					}
 				}
 
-				if (!bVarExists)
-				{
-					for (const FWeaveVarDecl& VarDecl : AST.Vars)
-					{
-						if (VarDecl.VarName == FunctionName)
-						{
-							bVarExists = true;
-							break;
-						}
-					}
-				}
-				if (!bVarExists)
+				if (!bIsSelfVar && !bIsExternalVar)
 				{
 					OutError = FString::Printf(
 						TEXT("变量 '%s' 不存在：%s.%s.%s 引用了未知变量。")
@@ -856,11 +1097,25 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 				if (NodeKind == TEXT("VariableGet"))
 				{
-					NewNode = CreateVariableGetNode(Graph, Blueprint, FunctionName);
+					if (bIsExternalVar && ExternalClass)
+					{
+						NewNode = CreateVariableGetNodeExternal(Graph, ExternalClass, FunctionName);
+					}
+					else
+					{
+						NewNode = CreateVariableGetNode(Graph, Blueprint, FunctionName);
+					}
 				}
 				else
 				{
-					NewNode = CreateVariableSetNode(Graph, Blueprint, FunctionName);
+					if (bIsExternalVar && ExternalClass)
+					{
+						NewNode = CreateVariableSetNodeExternal(Graph, ExternalClass, FunctionName);
+					}
+					else
+					{
+						NewNode = CreateVariableSetNode(Graph, Blueprint, FunctionName);
+					}
 				}
 			}
 		}
@@ -883,6 +1138,37 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		return 0;
 	}
 
+	// 修补 VariableGet/VariableSet 的引脚类型：
+	// AllocateDefaultPins 可能在蓝图未编译时找不到 FProperty，导致引脚类型缺失容器信息。
+	// 直接从 Blueprint->NewVariables 读取完整 PinType 覆盖到引脚上。
+	if (Blueprint)
+	{
+		for (auto& KV : CreatedNodes)
+		{
+			UK2Node_VariableGet* VarGet = Cast<UK2Node_VariableGet>(KV.Value);
+			UK2Node_VariableSet* VarSet = Cast<UK2Node_VariableSet>(KV.Value);
+			if (!VarGet && !VarSet) continue;
+
+			FName VarName = VarGet ? VarGet->GetVarName() : VarSet->GetVarName();
+			for (const FBPVariableDescription& Desc : Blueprint->NewVariables)
+			{
+				if (Desc.VarName == VarName && Desc.VarType.ContainerType != EPinContainerType::None)
+				{
+					// 修补输出引脚（Get）或输入引脚（Set）
+					UEdGraphPin* ValuePin = KV.Value->FindPin(VarName, VarGet ? EGPD_Output : EGPD_Input);
+					if (ValuePin)
+					{
+						ValuePin->PinType = Desc.VarType;
+						UE_LOG(LogTemp, Log, TEXT("[Weaver] Patched pin type for variable '%s' (container=%d)"),
+							*VarName.ToString(), (int32)Desc.VarType.ContainerType);
+					}
+					break;
+				}
+			}
+		}
+	}
+
+	const UEdGraphSchema_K2* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
 
 	for (const FWeaveSetStmt& Set : AST.Sets)
 	{
@@ -991,6 +1277,31 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 
 		UEdGraphPin* Pin = Node->FindPin(*Set.PinName, EGPD_Input);
+
+		// 如果找不到引脚，尝试递归展开结构体引脚
+		if (!Pin && Set.PinName.Contains(TEXT("_")) && Schema)
+		{
+			TArray<FString> Ancestors;
+			FString PinName = Set.PinName;
+			int32 LastUnderscore;
+			while (PinName.FindLastChar(TEXT('_'), LastUnderscore))
+			{
+				PinName = PinName.Left(LastUnderscore);
+				Ancestors.Insert(PinName, 0);
+			}
+
+			for (const FString& AncestorName : Ancestors)
+			{
+				UEdGraphPin* AncestorPin = Node->FindPin(*AncestorName, EGPD_Input);
+				if (AncestorPin && AncestorPin->SubPins.Num() == 0 &&
+					AncestorPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
+				{
+					Schema->SplitPin(AncestorPin, false);
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Auto-split struct pin for set: %s.%s"), *Set.NodeId, *AncestorName);
+				}
+			}
+			Pin = Node->FindPin(*Set.PinName, EGPD_Input);
+		}
 
 		if (!Pin)
 		{
@@ -1135,7 +1446,6 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 	SwitchEnumHandler.AddDynamicPins(CreatedNodes);
 
 
-	const UEdGraphSchema_K2* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
 	if (Schema)
 	{
 		for (const FWeaveLinkStmt& Link : AST.Links)
@@ -1210,11 +1520,64 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 			UEdGraphPin* FromPin = FromNode->FindPin(*Link.FromPin, EGPD_Output);
 
-			if (!FromPin && Link.FromPin != TEXT("ReturnValue"))
+			// ReturnValue 兜底：仅在引脚名不是 ReturnValue 子引脚时使用
+			if (!FromPin && Link.FromPin != TEXT("ReturnValue") && !Link.FromPin.StartsWith(TEXT("ReturnValue_")))
 				FromPin = FromNode->FindPin(TEXT("ReturnValue"), EGPD_Output);
+
+			// 如果找不到输出引脚，尝试递归展开结构体引脚（Split Struct Pin）
+			// 例如 ReturnValue_Frame_Value 需要先展开 ReturnValue，再展开 ReturnValue_Frame
+			if (!FromPin && Link.FromPin.Contains(TEXT("_")))
+			{
+				// 收集从根到目标的所有可能的父引脚层级
+				TArray<FString> Ancestors;
+				FString PinName = Link.FromPin;
+				int32 LastUnderscore;
+				while (PinName.FindLastChar(TEXT('_'), LastUnderscore))
+				{
+					PinName = PinName.Left(LastUnderscore);
+					Ancestors.Insert(PinName, 0); // 从根到叶排列
+				}
+
+				// 从最顶层的祖先开始，逐层展开
+				for (const FString& AncestorName : Ancestors)
+				{
+					UEdGraphPin* AncestorPin = FromNode->FindPin(*AncestorName, EGPD_Output);
+					if (AncestorPin && AncestorPin->SubPins.Num() == 0 &&
+						AncestorPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
+					{
+						Schema->SplitPin(AncestorPin, false);
+						UE_LOG(LogTemp, Log, TEXT("[Weaver] Auto-split struct pin: %s.%s"), *Link.FromNode, *AncestorName);
+					}
+				}
+				FromPin = FromNode->FindPin(*Link.FromPin, EGPD_Output);
+			}
 
 			UEdGraphPin* ToPin = ToNode->FindPin(*Link.ToPin, EGPD_Input);
 
+			// 如果找不到输入引脚，尝试递归展开结构体引脚
+			if (!ToPin && Link.ToPin.Contains(TEXT("_")))
+			{
+				TArray<FString> Ancestors;
+				FString PinName = Link.ToPin;
+				int32 LastUnderscore;
+				while (PinName.FindLastChar(TEXT('_'), LastUnderscore))
+				{
+					PinName = PinName.Left(LastUnderscore);
+					Ancestors.Insert(PinName, 0);
+				}
+
+				for (const FString& AncestorName : Ancestors)
+				{
+					UEdGraphPin* AncestorPin = ToNode->FindPin(*AncestorName, EGPD_Input);
+					if (AncestorPin && AncestorPin->SubPins.Num() == 0 &&
+						AncestorPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
+					{
+						Schema->SplitPin(AncestorPin, false);
+						UE_LOG(LogTemp, Log, TEXT("[Weaver] Auto-split struct pin: %s.%s"), *Link.ToNode, *AncestorName);
+					}
+				}
+				ToPin = ToNode->FindPin(*Link.ToPin, EGPD_Input);
+			}
 
 			if (!ToPin)
 			{
@@ -1292,22 +1655,48 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			const FPinConnectionResponse ConnectResponse = Schema->CanCreateConnection(FromPin, ToPin);
 			if (ConnectResponse.Response == CONNECT_RESPONSE_DISALLOW)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link disallowed: %s.%s (%s) -> %s.%s (%s): %s"),
-				       *Link.FromNode, *Link.FromPin, *FromPin->PinType.PinCategory.ToString(),
-				       *Link.ToNode, *Link.ToPin, *ToPin->PinType.PinCategory.ToString(),
-				       *ConnectResponse.Message.ToString());
-				FString LinkError = FString::Printf(
-					TEXT(
-						"link %s.%s -> %s.%s 无法建立：引脚类型 '%s' 与 '%s' 不兼容且无可用的自动转换节点。请手动声明转换节点（如 special.ToString 等）再连接。"),
-					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin,
-					*FromPin->PinType.PinCategory.ToString(), *ToPin->PinType.PinCategory.ToString());
-				if (!OutError.IsEmpty()) OutError += TEXT("\n");
-				OutError += LinkError;
-				continue;
+				// 通配符引脚本质上兼容任何类型，Schema 可能因缺少具体类型信息而拒绝连接
+				// 此时用 MakeLinkTo 强制建立连接
+				if (FromPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard ||
+					ToPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard)
+				{
+					FromPin->MakeLinkTo(ToPin);
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Wildcard fallback on disallow: %s.%s (%s) -> %s.%s (%s)"),
+						*Link.FromNode, *Link.FromPin, *FromPin->PinType.PinCategory.ToString(),
+						*Link.ToNode, *Link.ToPin, *ToPin->PinType.PinCategory.ToString());
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link disallowed: %s.%s (%s) -> %s.%s (%s): %s"),
+						   *Link.FromNode, *Link.FromPin, *FromPin->PinType.PinCategory.ToString(),
+						   *Link.ToNode, *Link.ToPin, *ToPin->PinType.PinCategory.ToString(),
+						   *ConnectResponse.Message.ToString());
+					FString LinkError = FString::Printf(
+						TEXT(
+							"link %s.%s -> %s.%s 无法建立：引脚类型 '%s' 与 '%s' 不兼容且无可用的自动转换节点。请手动声明转换节点（如 special.ToString 等）再连接。"),
+						*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin,
+						*FromPin->PinType.PinCategory.ToString(), *ToPin->PinType.PinCategory.ToString());
+					if (!OutError.IsEmpty()) OutError += TEXT("\n");
+					OutError += LinkError;
+					continue;
+				}
 			}
 
-
 			bool bConnected = Schema->TryCreateConnection(FromPin, ToPin);
+
+			// TryCreateConnection 对通配符引脚可能失败
+			// （内部 CanCreateConnection 返回 MAKE_WITH_CONVERSION_NODE 但转换节点创建失败）。
+			// 此时用 MakeLinkTo 直接建立连接，通配符本质上兼容任何类型。
+			if (!bConnected &&
+				(FromPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard ||
+				 ToPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard))
+			{
+				FromPin->MakeLinkTo(ToPin);
+				bConnected = true;
+				UE_LOG(LogTemp, Log, TEXT("[Weaver] Wildcard fallback MakeLinkTo: %s.%s -> %s.%s"),
+				       *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
+			}
+
 			if (!bConnected)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("[Weaver] TryCreateConnection failed: %s.%s -> %s.%s"),
@@ -1320,14 +1709,57 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				continue;
 			}
 
-			FromNode->PinConnectionListChanged(FromPin);
-			ToNode->PinConnectionListChanged(ToPin);
-
 			UE_LOG(LogTemp, Log, TEXT("[Weaver] Linked: %s.%s -> %s.%s"),
 			       *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
 		}
 	}
 
+	// 所有连线完成后，将通配符引脚类型设置为已连接的具体类型。
+	// 遍历图中所有创建的节点（包括已有连线对面的节点引脚也会间接获益）。
+	// 多轮迭代处理通配符链。
+	{
+		bool bChanged = true;
+		int32 MaxIterations = 5;
+		while (bChanged && MaxIterations-- > 0)
+		{
+			bChanged = false;
+			for (auto& KV : CreatedNodes)
+			{
+				UK2Node* Node = KV.Value;
+				if (!Node) continue;
+
+				for (UEdGraphPin* Pin : Node->Pins)
+				{
+					if (Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Wildcard) continue;
+					if (Pin->LinkedTo.Num() == 0) continue;
+
+					for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+					{
+						if (LinkedPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Wildcard)
+						{
+							Pin->PinType = LinkedPin->PinType;
+							bChanged = true;
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 类型传播完成后，统一通知所有节点连线变更
+	for (auto& KV : CreatedNodes)
+	{
+		UK2Node* Node = KV.Value;
+		if (!Node) continue;
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			if (Pin->LinkedTo.Num() > 0)
+			{
+				Node->PinConnectionListChanged(Pin);
+			}
+		}
+	}
 
 	for (auto& KV : CreatedNodes)
 	{
@@ -1375,6 +1807,16 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 UK2Node* FWeaveInterpreter::CreateEventNode(UEdGraph* Graph, const FString& ClassName, const FString& EventName)
 {
+	if (!Graph)
+	{
+		return nullptr;
+	}
+	if (EventName.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] CreateEventNode: empty EventName (ClassName=%s)"), *ClassName);
+		return nullptr;
+	}
+
 	for (UEdGraphNode* ExistingNode : Graph->Nodes)
 	{
 		if (UK2Node_Event* ExistingEvent = Cast<UK2Node_Event>(ExistingNode))
@@ -1388,32 +1830,66 @@ UK2Node* FWeaveInterpreter::CreateEventNode(UEdGraph* Graph, const FString& Clas
 		}
 	}
 
-	UK2Node_Event* EventNode = Graph->CreateIntermediateNode<UK2Node_Event>();
+	UBlueprint* Blueprint = Graph->GetTypedOuter<UBlueprint>();
+
+	FString FullClassName = ClassName;
+	if (ClassName == TEXT("Actor"))
+	{
+		FullClassName = TEXT("/Script/Engine.Actor");
+	}
+
+	UClass* EventClass = FindClassByShortName(FullClassName);
+	if (!EventClass && Blueprint)
+	{
+		if (Blueprint->GeneratedClass && Blueprint->GeneratedClass->GetName() == ClassName)
+		{
+			EventClass = Blueprint->GeneratedClass;
+		}
+		else if (Blueprint->SkeletonGeneratedClass && Blueprint->SkeletonGeneratedClass->GetName() == ClassName)
+		{
+			EventClass = Blueprint->SkeletonGeneratedClass;
+		}
+	}
+
+	const FName EventFName(*EventName);
+	bool bCreateCustomEvent = (EventClass == nullptr);
+	if (!bCreateCustomEvent && Cast<UBlueprintGeneratedClass>(EventClass))
+	{
+		UClass* SuperClass = EventClass->GetSuperClass();
+		UFunction* SuperFunc = SuperClass ? SuperClass->FindFunctionByName(EventFName) : nullptr;
+		if (!SuperFunc)
+		{
+			bCreateCustomEvent = true;
+		}
+	}
+
+	if (bCreateCustomEvent)
+	{
+		UK2Node_CustomEvent* CustomEventNode = SpawnEditorNode<UK2Node_CustomEvent>(Graph);
+		if (CustomEventNode)
+		{
+			CustomEventNode->CustomFunctionName = EventFName;
+			CustomEventNode->AllocateDefaultPins();
+			CustomEventNode->ReconstructNode();
+		}
+		return CustomEventNode;
+	}
+
+	UK2Node_Event* EventNode = SpawnEditorNode<UK2Node_Event>(Graph);
 	if (EventNode)
 	{
-		EventNode->CreateNewGuid();
-
-
-		FString FullClassName = ClassName;
-		if (ClassName == TEXT("Actor"))
-		{
-			FullClassName = TEXT("/Script/Engine.Actor");
-		}
-
-		EventNode->EventReference.SetExternalMember(*EventName, UClass::TryFindTypeSlow<UClass>(*FullClassName));
+		EventNode->EventReference.SetExternalMember(EventFName, EventClass);
 		EventNode->bOverrideFunction = true;
 		EventNode->AllocateDefaultPins();
 		EventNode->ReconstructNode();
 	}
 	return EventNode;
 }
-
 UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName)
 {
-	UK2Node_CallFunction* CallNode = Graph->CreateIntermediateNode<UK2Node_CallFunction>();
+	UK2Node_CallFunction* CallNode = SpawnEditorNode<UK2Node_CallFunction>(Graph);
 	if (CallNode)
 	{
-		CallNode->CreateNewGuid();
 
 
 		static const TMap<FString, FString> FuncNameTranslation = {
@@ -1450,21 +1926,14 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 		{
 			FullClassName = TEXT("/Script/Engine.KismetStringLibrary");
 		}
+		else if (ClassName == TEXT("KismetArrayLibrary")) 		{ 			FullClassName = TEXT("/Script/Engine.KismetArrayLibrary"); 		}
 		else if (ClassName == TEXT("GameplayStatics"))
 		{
 			FullClassName = TEXT("/Script/Engine.GameplayStatics");
 		}
 
 
-		UClass* TargetClass = nullptr;
-		if (FullClassName.StartsWith(TEXT("/")))
-		{
-			TargetClass = LoadObject<UClass>(nullptr, *FullClassName);
-		}
-		if (!TargetClass)
-		{
-			TargetClass = UClass::TryFindTypeSlow<UClass>(*FullClassName);
-		}
+		UClass* TargetClass = FindClassByShortName(FullClassName);
 		if (TargetClass)
 		{
 			UFunction* Function = TargetClass->FindFunctionByName(*ResolvedFunctionName);
@@ -1491,13 +1960,11 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 
 UK2Node* FWeaveInterpreter::CreateMessageNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName)
 {
-	UK2Node_Message* MessageNode = Graph->CreateIntermediateNode<UK2Node_Message>();
+	UK2Node_Message* MessageNode = SpawnEditorNode<UK2Node_Message>(Graph);
 	if (!MessageNode)
 	{
 		return nullptr;
 	}
-
-	MessageNode->CreateNewGuid();
 
 	static const TMap<FString, FString> FuncNameTranslation = {
 		{TEXT("Conv_FloatToString"), TEXT("Conv_DoubleToString")},
@@ -1538,15 +2005,7 @@ UK2Node* FWeaveInterpreter::CreateMessageNode(UEdGraph* Graph, const FString& Cl
 		FullClassName = TEXT("/Script/Engine.GameplayStatics");
 	}
 
-	UClass* TargetClass = nullptr;
-	if (FullClassName.StartsWith(TEXT("/")))
-	{
-		TargetClass = LoadObject<UClass>(nullptr, *FullClassName);
-	}
-	if (!TargetClass)
-	{
-		TargetClass = UClass::TryFindTypeSlow<UClass>(*FullClassName);
-	}
+	UClass* TargetClass = FindClassByShortName(FullClassName);
 	if (!TargetClass)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Weaver] Class not found: %s"), *FullClassName);
@@ -1571,12 +2030,12 @@ UK2Node* FWeaveInterpreter::CreateMessageNode(UEdGraph* Graph, const FString& Cl
 	MessageNode->ReconstructNode();
 	return MessageNode;
 }
+
 UK2Node* FWeaveInterpreter::CreateMacroNode(UEdGraph* Graph, const FString& MacroPath, const FString& MacroName)
 {
-	UK2Node_MacroInstance* MacroNode = Graph->CreateIntermediateNode<UK2Node_MacroInstance>();
+	UK2Node_MacroInstance* MacroNode = SpawnEditorNode<UK2Node_MacroInstance>(Graph);
 	if (MacroNode)
 	{
-		MacroNode->CreateNewGuid();
 
 		UE_LOG(LogTemp, Log, TEXT("[Weaver] Loading macro: Path=%s, Name=%s"), *MacroPath, *MacroName);
 
@@ -1624,10 +2083,9 @@ UK2Node* FWeaveInterpreter::CreateMacroNode(UEdGraph* Graph, const FString& Macr
 
 UK2Node* FWeaveInterpreter::CreateBranchNode(UEdGraph* Graph)
 {
-	UK2Node_IfThenElse* BranchNode = Graph->CreateIntermediateNode<UK2Node_IfThenElse>();
+	UK2Node_IfThenElse* BranchNode = SpawnEditorNode<UK2Node_IfThenElse>(Graph);
 	if (BranchNode)
 	{
-		BranchNode->CreateNewGuid();
 		BranchNode->AllocateDefaultPins();
 		BranchNode->ReconstructNode();
 	}
@@ -1636,10 +2094,9 @@ UK2Node* FWeaveInterpreter::CreateBranchNode(UEdGraph* Graph)
 
 UK2Node* FWeaveInterpreter::CreateSequenceNode(UEdGraph* Graph)
 {
-	UK2Node_ExecutionSequence* SequenceNode = Graph->CreateIntermediateNode<UK2Node_ExecutionSequence>();
+	UK2Node_ExecutionSequence* SequenceNode = SpawnEditorNode<UK2Node_ExecutionSequence>(Graph);
 	if (SequenceNode)
 	{
-		SequenceNode->CreateNewGuid();
 		SequenceNode->AllocateDefaultPins();
 		SequenceNode->ReconstructNode();
 	}
@@ -1648,10 +2105,9 @@ UK2Node* FWeaveInterpreter::CreateSequenceNode(UEdGraph* Graph)
 
 UK2Node* FWeaveInterpreter::CreateMathExpressionNode(UEdGraph* Graph)
 {
-	UK2Node_MathExpression* MathNode = Graph->CreateIntermediateNode<UK2Node_MathExpression>();
+	UK2Node_MathExpression* MathNode = SpawnEditorNode<UK2Node_MathExpression>(Graph);
 	if (MathNode)
 	{
-		MathNode->CreateNewGuid();
 		MathNode->AllocateDefaultPins();
 	}
 	return MathNode;
@@ -1671,11 +2127,10 @@ UK2Node* FWeaveInterpreter::CreateMakeStructNode(UEdGraph* Graph, const FString&
 
 	if (StructType)
 	{
-		UK2Node_MakeStruct* MakeNode = Graph->CreateIntermediateNode<UK2Node_MakeStruct>();
+		UK2Node_MakeStruct* MakeNode = SpawnEditorNode<UK2Node_MakeStruct>(Graph);
 		if (MakeNode)
 		{
 			MakeNode->StructType = StructType;
-			MakeNode->CreateNewGuid();
 			MakeNode->AllocateDefaultPins();
 
 
@@ -1717,11 +2172,10 @@ UK2Node* FWeaveInterpreter::CreateBreakStructNode(UEdGraph* Graph, const FString
 
 	if (StructType)
 	{
-		UK2Node_BreakStruct* BreakNode = Graph->CreateIntermediateNode<UK2Node_BreakStruct>();
+		UK2Node_BreakStruct* BreakNode = SpawnEditorNode<UK2Node_BreakStruct>(Graph);
 		if (BreakNode)
 		{
 			BreakNode->StructType = StructType;
-			BreakNode->CreateNewGuid();
 			BreakNode->AllocateDefaultPins();
 
 
@@ -1751,12 +2205,9 @@ UK2Node* FWeaveInterpreter::CreateBreakStructNode(UEdGraph* Graph, const FString
 
 UK2Node* FWeaveInterpreter::CreateVariableGetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VarName)
 {
-	UK2Node_VariableGet* VarGetNode = Graph->CreateIntermediateNode<UK2Node_VariableGet>();
+	UK2Node_VariableGet* VarGetNode = SpawnEditorNode<UK2Node_VariableGet>(Graph);
 	if (VarGetNode)
 	{
-		VarGetNode->CreateNewGuid();
-
-
 		FName VarFName = FName(*VarName);
 		VarGetNode->VariableReference.SetSelfMember(VarFName);
 		VarGetNode->AllocateDefaultPins();
@@ -1764,14 +2215,37 @@ UK2Node* FWeaveInterpreter::CreateVariableGetNode(UEdGraph* Graph, UBlueprint* B
 	return VarGetNode;
 }
 
-UK2Node* FWeaveInterpreter::CreateVariableSetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VarName)
+UK2Node* FWeaveInterpreter::CreateVariableGetNodeExternal(UEdGraph* Graph, UClass* OwnerClass, const FString& VarName)
 {
-	UK2Node_VariableSet* VarSetNode = Graph->CreateIntermediateNode<UK2Node_VariableSet>();
+	UK2Node_VariableGet* VarGetNode = SpawnEditorNode<UK2Node_VariableGet>(Graph);
+	if (VarGetNode)
+	{
+		FName VarFName = FName(*VarName);
+		VarGetNode->VariableReference.SetExternalMember(VarFName, OwnerClass);
+		VarGetNode->AllocateDefaultPins();
+		UE_LOG(LogTemp, Log, TEXT("[Weaver] Created external VariableGet: %s.%s"), *OwnerClass->GetName(), *VarName);
+	}
+	return VarGetNode;
+}
+
+UK2Node* FWeaveInterpreter::CreateVariableSetNodeExternal(UEdGraph* Graph, UClass* OwnerClass, const FString& VarName)
+{
+	UK2Node_VariableSet* VarSetNode = SpawnEditorNode<UK2Node_VariableSet>(Graph);
 	if (VarSetNode)
 	{
-		VarSetNode->CreateNewGuid();
+		FName VarFName = FName(*VarName);
+		VarSetNode->VariableReference.SetExternalMember(VarFName, OwnerClass);
+		VarSetNode->AllocateDefaultPins();
+		UE_LOG(LogTemp, Log, TEXT("[Weaver] Created external VariableSet: %s.%s"), *OwnerClass->GetName(), *VarName);
+	}
+	return VarSetNode;
+}
 
-
+UK2Node* FWeaveInterpreter::CreateVariableSetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VarName)
+{
+	UK2Node_VariableSet* VarSetNode = SpawnEditorNode<UK2Node_VariableSet>(Graph);
+	if (VarSetNode)
+	{
 		FName VarFName = FName(*VarName);
 		VarSetNode->VariableReference.SetSelfMember(VarFName);
 		VarSetNode->AllocateDefaultPins();
@@ -1781,10 +2255,9 @@ UK2Node* FWeaveInterpreter::CreateVariableSetNode(UEdGraph* Graph, UBlueprint* B
 
 UK2Node* FWeaveInterpreter::CreateSpawnActorFromClassNode(UEdGraph* Graph)
 {
-	UK2Node_SpawnActorFromClass* SpawnNode = Graph->CreateIntermediateNode<UK2Node_SpawnActorFromClass>();
+	UK2Node_SpawnActorFromClass* SpawnNode = SpawnEditorNode<UK2Node_SpawnActorFromClass>(Graph);
 	if (SpawnNode)
 	{
-		SpawnNode->CreateNewGuid();
 		SpawnNode->AllocateDefaultPins();
 	}
 	return SpawnNode;
@@ -1792,10 +2265,9 @@ UK2Node* FWeaveInterpreter::CreateSpawnActorFromClassNode(UEdGraph* Graph)
 
 UK2Node* FWeaveInterpreter::CreateConstructObjectFromClassNode(UEdGraph* Graph)
 {
-	UK2Node_ConstructObjectFromClass* ConstructNode = Graph->CreateIntermediateNode<UK2Node_ConstructObjectFromClass>();
+	UK2Node_ConstructObjectFromClass* ConstructNode = SpawnEditorNode<UK2Node_ConstructObjectFromClass>(Graph);
 	if (ConstructNode)
 	{
-		ConstructNode->CreateNewGuid();
 		ConstructNode->AllocateDefaultPins();
 	}
 	return ConstructNode;
@@ -1803,19 +2275,17 @@ UK2Node* FWeaveInterpreter::CreateConstructObjectFromClassNode(UEdGraph* Graph)
 
 UK2Node* FWeaveInterpreter::CreateDynamicCastNode(UEdGraph* Graph, const FString& TargetTypeName)
 {
-	UK2Node_DynamicCast* CastNode = Graph->CreateIntermediateNode<UK2Node_DynamicCast>();
+	UK2Node_DynamicCast* CastNode = SpawnEditorNode<UK2Node_DynamicCast>(Graph);
 	if (CastNode)
 	{
-		CastNode->CreateNewGuid();
 
 
-		UClass* TargetClass = UClass::TryFindTypeSlow<UClass>(*(TEXT("A") + TargetTypeName));
-		if (!TargetClass) TargetClass = UClass::TryFindTypeSlow<UClass>(*(TEXT("U") + TargetTypeName));
-		if (!TargetClass) TargetClass = UClass::TryFindTypeSlow<UClass>(*TargetTypeName);
+		UClass* TargetClass = FindClassByShortName(TargetTypeName);
 
 		if (TargetClass)
 		{
 			CastNode->TargetType = TargetClass;
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] CreateDynamicCastNode: Found type %s (Class=%s)"), *TargetTypeName, *TargetClass->GetName());
 		}
 		else
 		{
@@ -1823,7 +2293,46 @@ UK2Node* FWeaveInterpreter::CreateDynamicCastNode(UEdGraph* Graph, const FString
 		}
 
 		CastNode->AllocateDefaultPins();
-		CastNode->ReconstructNode();
+
+		// 诊断：列出所有引脚
+		for (UEdGraphPin* Pin : CastNode->Pins)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] Cast pin: Name=%s Dir=%d Category=%s SubObj=%s"),
+				*Pin->PinName.ToString(),
+				(int32)Pin->Direction,
+				*Pin->PinType.PinCategory.ToString(),
+				Pin->PinType.PinSubCategoryObject.IsValid() ? *Pin->PinType.PinSubCategoryObject->GetName() : TEXT("null"));
+		}
+
+		// AllocateDefaultPins 在某些情况下会创建 wildcard 引脚而非 PC_Object，
+		// 手动修正 Object 引脚和 As 输出引脚类型
+		for (UEdGraphPin* Pin : CastNode->Pins)
+		{
+			if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard)
+			{
+				// 修正 Object 输入引脚
+				if (Pin->Direction == EGPD_Input && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+				{
+					Pin->PinType.PinCategory = UEdGraphSchema_K2::PC_Object;
+					Pin->PinType.PinSubCategoryObject = UObject::StaticClass();
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Fixed Cast input pin: %s -> PC_Object"), *Pin->PinName.ToString());
+				}
+				// 修正 As 输出引脚
+				else if (Pin->Direction == EGPD_Output && TargetClass)
+				{
+					if (TargetClass->IsChildOf(UInterface::StaticClass()))
+					{
+						Pin->PinType.PinCategory = UEdGraphSchema_K2::PC_Interface;
+					}
+					else
+					{
+						Pin->PinType.PinCategory = UEdGraphSchema_K2::PC_Object;
+					}
+					Pin->PinType.PinSubCategoryObject = TargetClass;
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Fixed Cast output pin: %s -> PC_Object/%s"), *Pin->PinName.ToString(), *TargetClass->GetName());
+				}
+			}
+		}
 	}
 	return CastNode;
 }
@@ -1857,32 +2366,61 @@ UK2Node* FWeaveInterpreter::CreateSwitchEnumNode(UEdGraph* Graph, const FString&
 		return nullptr;
 	}
 
-	UK2Node_SwitchEnum* SwitchNode = Graph->CreateIntermediateNode<UK2Node_SwitchEnum>();
+	UK2Node_SwitchEnum* SwitchNode = SpawnEditorNode<UK2Node_SwitchEnum>(Graph);
 	if (SwitchNode)
 	{
-		SwitchNode->CreateNewGuid();
 
-		// 直接设置 public UPROPERTY 成员，绕开 SetEnum（该函数在某些版本仍可能因 MinimalAPI 未导出导致跨模块链接失败）
 		SwitchNode->Enum = TargetEnum;
 		SwitchNode->EnumEntries.Empty();
 		SwitchNode->EnumFriendlyNames.Empty();
+
 		if (TargetEnum)
 		{
-			const int32 NumEnums = TargetEnum->NumEnums();
-			for (int32 EnumIndex = 0; EnumIndex < NumEnums; ++EnumIndex)
+			if (IsInGameThread() || TargetEnum->IsPostLoadThreadSafe())
 			{
-				if (!TargetEnum->HasMetaData(TEXT("Hidden"), EnumIndex) && !TargetEnum->HasMetaData(TEXT("Spacer"), EnumIndex))
+				TargetEnum->ConditionalPostLoad();
+			}
+
+			for (int32 EnumIndex = 0; EnumIndex < TargetEnum->NumEnums() - 1; ++EnumIndex)
+			{
+				const bool bShouldBeHidden = TargetEnum->HasMetaData(TEXT("Hidden"), EnumIndex) || TargetEnum->HasMetaData(TEXT("Spacer"), EnumIndex);
+				if (bShouldBeHidden)
 				{
-					const FString EnumValueName = TargetEnum->GetNameStringByIndex(EnumIndex);
-					if (!EnumValueName.IsEmpty())
-					{
-						SwitchNode->EnumEntries.Add(FName(*EnumValueName));
-						SwitchNode->EnumFriendlyNames.Add(TargetEnum->GetDisplayNameTextByIndex(EnumIndex));
-					}
+					continue;
 				}
+
+				const FString EnumValueName = TargetEnum->GetNameStringByIndex(EnumIndex);
+				SwitchNode->EnumEntries.Add(FName(*EnumValueName));
+				SwitchNode->EnumFriendlyNames.Add(TargetEnum->GetDisplayNameTextByIndex(EnumIndex));
 			}
 		}
+
 		SwitchNode->ReconstructNode();
 	}
 	return SwitchNode;
 }
+
+UK2Node* FWeaveInterpreter::CreateGetArrayItemNode(UEdGraph* Graph)
+{
+	UK2Node_GetArrayItem* ArrayGetNode = SpawnEditorNode<UK2Node_GetArrayItem>(Graph);
+	if (ArrayGetNode)
+	{
+		ArrayGetNode->AllocateDefaultPins();
+	}
+	return ArrayGetNode;
+}
+
+UK2Node* FWeaveInterpreter::CreateKnotNode(UEdGraph* Graph)
+{
+	UK2Node_Knot* KnotNode = SpawnEditorNode<UK2Node_Knot>(Graph);
+	if (KnotNode)
+	{
+		KnotNode->AllocateDefaultPins();
+	}
+	return KnotNode;
+}
+
+
+
+
+

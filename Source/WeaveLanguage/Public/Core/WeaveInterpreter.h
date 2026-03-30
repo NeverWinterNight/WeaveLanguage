@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "EdGraph/EdGraphPin.h"
 
 
 struct FWeaveNodeDecl
@@ -30,6 +31,8 @@ struct FWeaveVarDecl
 {
 	FString VarName;
 	FString VarType;
+	EPinContainerType ContainerType = EPinContainerType::None;
+	FString ValueType; // Map 的 Value 类型（Key 类型存在 VarType 中）
 };
 
 struct FWeaveAST
@@ -71,7 +74,7 @@ private:
 
 	static UK2Node* CreateEventNode(UEdGraph* Graph, const FString& ClassName, const FString& EventName);
 	static UK2Node* CreateCallNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName);
-	static UK2Node* CreateMessageNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName);
+    static UK2Node* CreateMessageNode(UEdGraph* Graph, const FString& ClassName, const FString& FunctionName);
 	static UK2Node* CreateMacroNode(UEdGraph* Graph, const FString& MacroPath, const FString& MacroName);
 	static UK2Node* CreateBranchNode(UEdGraph* Graph);
 	static UK2Node* CreateSequenceNode(UEdGraph* Graph);
@@ -79,9 +82,14 @@ private:
 	static UK2Node* CreateMakeStructNode(UEdGraph* Graph, const FString& StructTypeName);
 	static UK2Node* CreateBreakStructNode(UEdGraph* Graph, const FString& StructTypeName);
 	static UK2Node* CreateVariableGetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VarName);
+	static UK2Node* CreateVariableGetNodeExternal(UEdGraph* Graph, UClass* OwnerClass, const FString& VarName);
 	static UK2Node* CreateVariableSetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VarName);
+	static UK2Node* CreateVariableSetNodeExternal(UEdGraph* Graph, UClass* OwnerClass, const FString& VarName);
 	static UK2Node* CreateSpawnActorFromClassNode(UEdGraph* Graph);
 	static UK2Node* CreateConstructObjectFromClassNode(UEdGraph* Graph);
 	static UK2Node* CreateDynamicCastNode(UEdGraph* Graph, const FString& TargetTypeName);
 	static UK2Node* CreateSwitchEnumNode(UEdGraph* Graph, const FString& EnumName);
+	static UK2Node* CreateGetArrayItemNode(UEdGraph* Graph);
+	static UK2Node* CreateKnotNode(UEdGraph* Graph);
 };
+
