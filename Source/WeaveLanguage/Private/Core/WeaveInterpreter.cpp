@@ -625,10 +625,11 @@ bool FWeaveInterpreter::ParseComment(const TArray<FString>& Tokens, int32& Index
 	{
 		Text = Text.Mid(1, Text.Len() - 2);
 	}
-	// 还原转义
+	// 还原转义（顺序重要：先处理 \\ 避免与 \n、\" 冲突）
+	Text = Text.Replace(TEXT("\\\\"), TEXT("\x01"));  // 临时占位
 	Text = Text.Replace(TEXT("\\n"), TEXT("\n"));
 	Text = Text.Replace(TEXT("\\\""), TEXT("\""));
-	Text = Text.Replace(TEXT("\\\\"), TEXT("\\"));
+	Text = Text.Replace(TEXT("\x01"), TEXT("\\"));
 	OutComment.Text = Text;
 
 	// @ (X, Y)
