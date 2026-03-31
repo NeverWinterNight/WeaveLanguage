@@ -142,7 +142,16 @@ bool FWeaveInterpreter::Parse(const FString& WeaveCode, FWeaveAST& OutAST, FStri
 			FWeaveLinkStmt Link;
 			if (!ParseLink(Tokens, Index, Link))
 			{
-				OutError = FString::Printf(TEXT("Failed to parse link at token %d"), Index);
+				// 输出解析失败位置附近的 token 上下文
+				FString Context;
+				int32 CtxStart = FMath::Max(0, Index - 3);
+				int32 CtxEnd = FMath::Min(Tokens.Num(), Index + 4);
+				for (int32 c = CtxStart; c < CtxEnd; ++c)
+				{
+					if (c == Index) Context += TEXT("[>>]");
+					Context += Tokens[c] + TEXT(" ");
+				}
+				OutError = FString::Printf(TEXT("Failed to parse link at token %d. 附近 token: %s（详细原因见 OutputLog）"), Index, *Context);
 				return false;
 			}
 			if (Link.FromNode == Link.ToNode)
@@ -423,10 +432,13 @@ bool FWeaveInterpreter::ParseSet(const TArray<FString>& Tokens, int32& Index, FW
 
 bool FWeaveInterpreter::ParseLink(const TArray<FString>& Tokens, int32& Index, FWeaveLinkStmt& OutLink)
 {
+	const int32 StartIndex = Index;
 	Index++;
 
+	// 期望格式: link FromNode . FromPin -> ToNode . ToPin
 	if (Index >= Tokens.Num())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] ParseLink failed at token %d: 缺少 FromNode（'link' 后没有更多 token）"), StartIndex);
 		return false;
 	}
 
@@ -434,12 +446,15 @@ bool FWeaveInterpreter::ParseLink(const TArray<FString>& Tokens, int32& Index, F
 
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("."))
 	{
+		FString Got = Index < Tokens.Num() ? Tokens[Index] : TEXT("<EOF>");
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] ParseLink failed at token %d: FromNode='%s' 后期望 '.' 但得到 '%s'"), Index, *OutLink.FromNode, *Got);
 		return false;
 	}
 	Index++;
 
 	if (Index >= Tokens.Num())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] ParseLink failed at token %d: FromNode='%s' 后缺少 FromPin"), Index, *OutLink.FromNode);
 		return false;
 	}
 	OutLink.FromPin = Tokens[Index++];
@@ -450,24 +465,30 @@ bool FWeaveInterpreter::ParseLink(const TArray<FString>& Tokens, int32& Index, F
 
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("->"))
 	{
+		FString Got = Index < Tokens.Num() ? Tokens[Index] : TEXT("<EOF>");
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] ParseLink failed at token %d: '%s.%s' 后期望 '->' 但得到 '%s'"), Index, *OutLink.FromNode, *OutLink.FromPin, *Got);
 		return false;
 	}
 	Index++;
 
 	if (Index >= Tokens.Num())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] ParseLink failed at token %d: '%s.%s ->' 后缺少 ToNode"), Index, *OutLink.FromNode, *OutLink.FromPin);
 		return false;
 	}
 	OutLink.ToNode = Tokens[Index++];
 
 	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("."))
 	{
+		FString Got = Index < Tokens.Num() ? Tokens[Index] : TEXT("<EOF>");
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] ParseLink failed at token %d: ToNode='%s' 后期望 '.' 但得到 '%s'"), Index, *OutLink.ToNode, *Got);
 		return false;
 	}
 	Index++;
 
 	if (Index >= Tokens.Num())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Weaver] ParseLink failed at token %d: ToNode='%s' 后缺少 ToPin"), Index, *OutLink.ToNode);
 		return false;
 	}
 	OutLink.ToPin = Tokens[Index++];
