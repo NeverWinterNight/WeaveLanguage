@@ -2,6 +2,7 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
+#include "EdGraphNode_Comment.h"
 #include "K2Node.h"
 #include "K2Node_Event.h"
 #include "K2Node_CallFunction.h"
@@ -176,6 +177,12 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 
 	for (UEdGraphNode* Node : AllNodes)
 	{
+		// 注释节点单独处理，跳过普通 node 输出
+		if (Node->IsA<UEdGraphNode_Comment>())
+		{
+			continue;
+		}
+
 		FString NodeId;
 		int32 Index = NodeCounter++;
 		int32 RepeatCount = (Index / 26) + 1;
@@ -318,7 +325,7 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 					// 避免 Tokenizer 将其拆分导致 ParseSet 提前终止
 					FString SafeValue = DefaultValue;
 					static const TArray<FString> Keywords = {
-						TEXT("node"), TEXT("set"), TEXT("link"), TEXT("graph"), TEXT("graphset"), TEXT("var")
+						TEXT("node"), TEXT("set"), TEXT("link"), TEXT("graph"), TEXT("graphset"), TEXT("var"), TEXT("comment")
 					};
 					bool bNeedsQuote = DefaultValue.Contains(TEXT(" ")) || DefaultValue.Contains(TEXT("\t"))
 						|| DefaultValue.Contains(TEXT(".")) || DefaultValue.Contains(TEXT("="))
@@ -343,6 +350,32 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 					EmittedPins.Add(Pin->PinName);
 				}
 			}
+		}
+	}
+
+	// 输出注释节点
+	for (UEdGraphNode* Node : AllNodes)
+	{
+		if (const UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(Node))
+		{
+			FString CommentText = CommentNode->NodeComment;
+			// 转义引号和换行
+			CommentText = CommentText.Replace(TEXT("\\"), TEXT("\\\\"));
+			CommentText = CommentText.Replace(TEXT("\""), TEXT("\\\""));
+			CommentText = CommentText.Replace(TEXT("\n"), TEXT("\\n"));
+			CommentText = CommentText.Replace(TEXT("\r"), TEXT(""));
+
+			int32 PosX = CommentNode->NodePosX;
+			int32 PosY = CommentNode->NodePosY;
+			int32 SizeX = CommentNode->NodeWidth;
+			int32 SizeY = CommentNode->NodeHeight;
+
+			// comment "文本" @ (X, Y) size (W, H) color (R, G, B, A) fontsize N
+			FLinearColor Color = CommentNode->CommentColor;
+			Code += FString::Printf(TEXT("comment \"%s\" @ (%d, %d) size (%d, %d) color (%f, %f, %f, %f) fontsize %d\n"),
+				*CommentText, PosX, PosY, SizeX, SizeY,
+				Color.R, Color.G, Color.B, Color.A,
+				CommentNode->FontSize);
 		}
 	}
 

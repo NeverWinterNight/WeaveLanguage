@@ -25,6 +25,7 @@
 #include "K2Node_DynamicCast.h"
 #include "K2Node_GetArrayItem.h"
 #include "K2Node_Knot.h"
+#include "EdGraphNode_Comment.h"
 #include "ScopedTransaction.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "UObject/UObjectIterator.h"
@@ -173,6 +174,16 @@ bool FWeaveInterpreter::Parse(const FString& WeaveCode, FWeaveAST& OutAST, FStri
 				return false;
 			}
 			OutAST.Vars.Add(Var);
+		}
+		else if (Token == TEXT("comment"))
+		{
+			FWeaveCommentDecl Comment;
+			if (!ParseComment(Tokens, Index, Comment))
+			{
+				OutError = FString::Printf(TEXT("Failed to parse comment at token %d"), Index);
+				return false;
+			}
+			OutAST.Comments.Add(Comment);
 		}
 		else
 		{
@@ -424,7 +435,7 @@ bool FWeaveInterpreter::ParseSet(const TArray<FString>& Tokens, int32& Index, FW
 		{
 			const FString& Token = Tokens[Index];
 			if (Token == TEXT("node") || Token == TEXT("set") || Token == TEXT("link") || Token == TEXT("graph") ||
-				Token == TEXT("graphset") || Token == TEXT("var"))
+				Token == TEXT("graphset") || Token == TEXT("var") || Token == TEXT("comment"))
 			{
 				break;
 			}
@@ -598,6 +609,111 @@ bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FW
 	return true;
 }
 
+bool FWeaveInterpreter::ParseComment(const TArray<FString>& Tokens, int32& Index, FWeaveCommentDecl& OutComment)
+{
+	// 格式: comment "文本" @ (X, Y) size (W, H) [color (R, G, B, A)] [fontsize N]
+	Index++; // 跳过 "comment"
+
+	if (Index >= Tokens.Num())
+	{
+		return false;
+	}
+
+	// 读取注释文本（引号包裹）
+	FString Text = Tokens[Index++];
+	if (Text.StartsWith(TEXT("\"")) && Text.EndsWith(TEXT("\"")) && Text.Len() >= 2)
+	{
+		Text = Text.Mid(1, Text.Len() - 2);
+	}
+	// 还原转义
+	Text = Text.Replace(TEXT("\\n"), TEXT("\n"));
+	Text = Text.Replace(TEXT("\\\""), TEXT("\""));
+	Text = Text.Replace(TEXT("\\\\"), TEXT("\\"));
+	OutComment.Text = Text;
+
+	// @ (X, Y)
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("@"))
+	{
+		return false;
+	}
+	Index++; // @
+
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("("))
+	{
+		return false;
+	}
+	Index++; // (
+
+	if (Index >= Tokens.Num()) return false;
+	OutComment.Position.X = FCString::Atof(*Tokens[Index++]);
+
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT(",")) return false;
+	Index++; // ,
+
+	if (Index >= Tokens.Num()) return false;
+	OutComment.Position.Y = FCString::Atof(*Tokens[Index++]);
+
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT(")")) return false;
+	Index++; // )
+
+	// size (W, H)
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("size"))
+	{
+		return false;
+	}
+	Index++; // size
+
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT("(")) return false;
+	Index++; // (
+
+	if (Index >= Tokens.Num()) return false;
+	OutComment.Size.X = FCString::Atof(*Tokens[Index++]);
+
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT(",")) return false;
+	Index++; // ,
+
+	if (Index >= Tokens.Num()) return false;
+	OutComment.Size.Y = FCString::Atof(*Tokens[Index++]);
+
+	if (Index >= Tokens.Num() || Tokens[Index] != TEXT(")")) return false;
+	Index++; // )
+
+	// 可选: color (R, G, B, A)
+	if (Index < Tokens.Num() && Tokens[Index] == TEXT("color"))
+	{
+		Index++; // color
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT("(")) return false;
+		Index++; // (
+
+		if (Index >= Tokens.Num()) return false;
+		OutComment.Color.R = FCString::Atof(*Tokens[Index++]);
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(",")) return false;
+		Index++;
+		if (Index >= Tokens.Num()) return false;
+		OutComment.Color.G = FCString::Atof(*Tokens[Index++]);
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(",")) return false;
+		Index++;
+		if (Index >= Tokens.Num()) return false;
+		OutComment.Color.B = FCString::Atof(*Tokens[Index++]);
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(",")) return false;
+		Index++;
+		if (Index >= Tokens.Num()) return false;
+		OutComment.Color.A = FCString::Atof(*Tokens[Index++]);
+
+		if (Index >= Tokens.Num() || Tokens[Index] != TEXT(")")) return false;
+		Index++; // )
+	}
+
+	// 可选: fontsize N
+	if (Index < Tokens.Num() && Tokens[Index] == TEXT("fontsize"))
+	{
+		Index++; // fontsize
+		if (Index >= Tokens.Num()) return false;
+		OutComment.FontSize = FCString::Atoi(*Tokens[Index++]);
+	}
+
+	return true;
+}
 
 int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph, FString& OutError)
 {
@@ -1937,6 +2053,28 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		}
 	}
 
+
+	// 创建注释节点
+	for (const FWeaveCommentDecl& CommentDecl : AST.Comments)
+	{
+		UEdGraphNode_Comment* CommentNode = NewObject<UEdGraphNode_Comment>(Graph, NAME_None, RF_Transactional);
+		if (CommentNode)
+		{
+			Graph->AddNode(CommentNode, false, false);
+			CommentNode->CreateNewGuid();
+			CommentNode->NodeComment = CommentDecl.Text;
+			CommentNode->NodePosX = CommentDecl.Position.X;
+			CommentNode->NodePosY = CommentDecl.Position.Y;
+			CommentNode->ResizeNode(CommentDecl.Size);
+			CommentNode->CommentColor = CommentDecl.Color;
+			CommentNode->FontSize = CommentDecl.FontSize;
+			NodesCreated++;
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] Created comment: \"%s\" @ (%d, %d) size (%d, %d)"),
+				*CommentDecl.Text.Left(50),
+				(int32)CommentDecl.Position.X, (int32)CommentDecl.Position.Y,
+				(int32)CommentDecl.Size.X, (int32)CommentDecl.Size.Y);
+		}
+	}
 
 	Graph->NotifyGraphChanged();
 
