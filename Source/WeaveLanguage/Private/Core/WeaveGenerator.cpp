@@ -223,6 +223,7 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 	TSet<FString> GeneratedLinks;
 	for (UEdGraphNode* Node : AllNodes)
 	{
+		if (Node->IsA<UEdGraphNode_Comment>()) continue;
 		for (UEdGraphPin* Pin : Node->Pins)
 		{
 			if (Pin->Direction == EGPD_Output)
@@ -268,6 +269,7 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 
 	for (UEdGraphNode* Node : AllNodes)
 	{
+		if (Node->IsA<UEdGraphNode_Comment>()) continue;
 		FString NodeId = NodeIdMap[Node];
 
 
