@@ -1197,6 +1197,14 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 			UE_LOG(LogTemp, Log, TEXT("[Weaver] Created node: %s (%s)"), *NodeDecl.NodeId, *NodeDecl.SchemaId);
 		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Weaver] Failed to create node: %s (%s)"), *NodeDecl.NodeId, *NodeDecl.SchemaId);
+			if (!OutError.IsEmpty()) OutError += TEXT("\n");
+			OutError += FString::Printf(
+				TEXT("节点 '%s' (schema: %s) 创建失败：函数/类/宏可能不存在于目标蓝图中。如果是自定义函数，请确保目标蓝图中已定义该函数。"),
+				*NodeDecl.NodeId, *NodeDecl.SchemaId);
+		}
 	}
 
 	if (NodesCreated == 0)
@@ -2076,13 +2084,79 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 			}
 			else
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Function not found: %s::%s"), *FullClassName,
-				       *ResolvedFunctionName);
+				// 尝试在蓝图自身的函数图表中查找自定义函数
+				UBlueprint* Blueprint = Graph->GetTypedOuter<UBlueprint>();
+				if (Blueprint)
+				{
+					for (UEdGraph* FuncGraph : Blueprint->FunctionGraphs)
+					{
+						if (FuncGraph && FuncGraph->GetFName() == FName(*ResolvedFunctionName))
+						{
+							// 找到自定义函数图表，使用蓝图自身类的 UFunction
+							UClass* BPClass = Blueprint->SkeletonGeneratedClass
+								? Blueprint->SkeletonGeneratedClass
+								: Blueprint->GeneratedClass;
+							if (BPClass)
+							{
+								Function = BPClass->FindFunctionByName(*ResolvedFunctionName);
+								if (Function)
+								{
+									CallNode->SetFromFunction(Function);
+									CallNode->AllocateDefaultPins();
+									CallNode->ReconstructNode();
+									UE_LOG(LogTemp, Log, TEXT("[Weaver] Found custom function in blueprint: %s::%s"), *BPClass->GetName(), *ResolvedFunctionName);
+								}
+							}
+							break;
+						}
+					}
+				}
+
+				if (!Function)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("[Weaver] Function not found: %s::%s (class exists but function doesn't)"), *FullClassName, *ResolvedFunctionName);
+					Graph->RemoveNode(CallNode);
+					return nullptr;
+				}
 			}
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[Weaver] Class not found: %s"), *FullClassName);
+			// 类找不到时，尝试在当前蓝图的函数图表中查找
+			UBlueprint* Blueprint = Graph->GetTypedOuter<UBlueprint>();
+			bool bFound = false;
+			if (Blueprint)
+			{
+				for (UEdGraph* FuncGraph : Blueprint->FunctionGraphs)
+				{
+					if (FuncGraph && FuncGraph->GetFName() == FName(*ResolvedFunctionName))
+					{
+						UClass* BPClass = Blueprint->SkeletonGeneratedClass
+							? Blueprint->SkeletonGeneratedClass
+							: Blueprint->GeneratedClass;
+						if (BPClass)
+						{
+							UFunction* Function = BPClass->FindFunctionByName(*ResolvedFunctionName);
+							if (Function)
+							{
+								CallNode->SetFromFunction(Function);
+								CallNode->AllocateDefaultPins();
+								CallNode->ReconstructNode();
+								bFound = true;
+								UE_LOG(LogTemp, Log, TEXT("[Weaver] Found custom function in blueprint (class '%s' not resolved): %s"), *ClassName, *ResolvedFunctionName);
+							}
+						}
+						break;
+					}
+				}
+			}
+
+			if (!bFound)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Class not found: %s, function: %s"), *FullClassName, *ResolvedFunctionName);
+				Graph->RemoveNode(CallNode);
+				return nullptr;
+			}
 		}
 	}
 	return CallNode;
