@@ -1645,9 +1645,45 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 			if (!FromPin || !ToPin)
 			{
+				// 收集引脚详细信息的 lambda（名称 + 类型 + SubCategory）
+				auto CollectPinDetails = [](UK2Node* Node, EEdGraphPinDirection Dir) -> FString
+				{
+					TArray<FString> Details;
+					for (UEdGraphPin* P : Node->Pins)
+					{
+						if (P->Direction == Dir)
+						{
+							FString SubObj = P->PinType.PinSubCategoryObject.IsValid()
+								? P->PinType.PinSubCategoryObject->GetName()
+								: TEXT("null");
+							FString Detail = FString::Printf(TEXT("%s(%s|%s|%s)"),
+								*P->PinName.ToString(),
+								*P->PinType.PinCategory.ToString(),
+								*P->PinType.PinSubCategory.ToString(),
+								*SubObj);
+							if (P->bHidden) Detail += TEXT("[hidden]");
+							if (P->ParentPin) Detail += FString::Printf(TEXT("[parent:%s]"), *P->ParentPin->PinName.ToString());
+							Details.Add(Detail);
+						}
+					}
+					return Details.IsEmpty() ? TEXT("(无)") : FString::Join(Details, TEXT(", "));
+				};
+
 				UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link failed: pin not found (%s.%s or %s.%s)"),
 				       *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
 
+				if (!FromPin)
+				{
+					FString AllOutputs = CollectPinDetails(FromNode, EGPD_Output);
+					UE_LOG(LogTemp, Warning, TEXT("[Weaver]   FromNode '%s' (%s) 全部输出引脚: %s"),
+						*Link.FromNode, *FromNode->GetClass()->GetName(), *AllOutputs);
+				}
+				if (!ToPin)
+				{
+					FString AllInputs = CollectPinDetails(ToNode, EGPD_Input);
+					UE_LOG(LogTemp, Warning, TEXT("[Weaver]   ToNode '%s' (%s) 全部输入引脚: %s"),
+						*Link.ToNode, *ToNode->GetClass()->GetName(), *AllInputs);
+				}
 
 				auto CollectPinNames = [](UK2Node* Node, EEdGraphPinDirection Dir) -> FString
 				{
@@ -1691,30 +1727,52 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			ToPin->Modify();
 
 
+			// 输出引脚完整类型信息的 lambda
+			auto PinTypeToDebugStr = [](const UEdGraphPin* Pin) -> FString
+			{
+				FString SubObj = Pin->PinType.PinSubCategoryObject.IsValid()
+					? Pin->PinType.PinSubCategoryObject->GetName()
+					: TEXT("null");
+				FString ContainerStr;
+				switch (Pin->PinType.ContainerType)
+				{
+				case EPinContainerType::Array: ContainerStr = TEXT("Array"); break;
+				case EPinContainerType::Set:   ContainerStr = TEXT("Set");   break;
+				case EPinContainerType::Map:   ContainerStr = TEXT("Map");   break;
+				default:                       ContainerStr = TEXT("None");  break;
+				}
+				return FString::Printf(TEXT("Cat=%s, Sub=%s, SubObj=%s, Container=%s, Ref=%s"),
+					*Pin->PinType.PinCategory.ToString(),
+					*Pin->PinType.PinSubCategory.ToString(),
+					*SubObj,
+					*ContainerStr,
+					Pin->PinType.bIsReference ? TEXT("true") : TEXT("false"));
+			};
+
 			const FPinConnectionResponse ConnectResponse = Schema->CanCreateConnection(FromPin, ToPin);
 			if (ConnectResponse.Response == CONNECT_RESPONSE_DISALLOW)
 			{
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver] CanCreateConnection DISALLOW: %s.%s -> %s.%s"),
+					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver]   FromPin type: {%s}"), *PinTypeToDebugStr(FromPin));
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver]   ToPin   type: {%s}"), *PinTypeToDebugStr(ToPin));
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver]   Reason: %s"), *ConnectResponse.Message.ToString());
+
 				// 通配符引脚本质上兼容任何类型，Schema 可能因缺少具体类型信息而拒绝连接
 				// 此时用 MakeLinkTo 强制建立连接
 				if (FromPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard ||
 					ToPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard)
 				{
 					FromPin->MakeLinkTo(ToPin);
-					UE_LOG(LogTemp, Log, TEXT("[Weaver] Wildcard fallback on disallow: %s.%s (%s) -> %s.%s (%s)"),
-						*Link.FromNode, *Link.FromPin, *FromPin->PinType.PinCategory.ToString(),
-						*Link.ToNode, *Link.ToPin, *ToPin->PinType.PinCategory.ToString());
+					UE_LOG(LogTemp, Log, TEXT("[Weaver]   -> Wildcard fallback: forced MakeLinkTo"));
 				}
 				else
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[Weaver] Link disallowed: %s.%s (%s) -> %s.%s (%s): %s"),
-						   *Link.FromNode, *Link.FromPin, *FromPin->PinType.PinCategory.ToString(),
-						   *Link.ToNode, *Link.ToPin, *ToPin->PinType.PinCategory.ToString(),
-						   *ConnectResponse.Message.ToString());
 					FString LinkError = FString::Printf(
-						TEXT(
-							"link %s.%s -> %s.%s 无法建立：引脚类型 '%s' 与 '%s' 不兼容且无可用的自动转换节点。请手动声明转换节点（如 special.ToString 等）再连接。"),
+						TEXT("link %s.%s -> %s.%s 无法建立：FromPin={%s}, ToPin={%s}, 原因: %s"),
 						*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin,
-						*FromPin->PinType.PinCategory.ToString(), *ToPin->PinType.PinCategory.ToString());
+						*PinTypeToDebugStr(FromPin), *PinTypeToDebugStr(ToPin),
+						*ConnectResponse.Message.ToString());
 					if (!OutError.IsEmpty()) OutError += TEXT("\n");
 					OutError += LinkError;
 					continue;
@@ -1724,8 +1782,6 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			bool bConnected = Schema->TryCreateConnection(FromPin, ToPin);
 
 			// TryCreateConnection 对通配符引脚可能失败
-			// （内部 CanCreateConnection 返回 MAKE_WITH_CONVERSION_NODE 但转换节点创建失败）。
-			// 此时用 MakeLinkTo 直接建立连接，通配符本质上兼容任何类型。
 			if (!bConnected &&
 				(FromPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard ||
 				 ToPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard))
@@ -1738,11 +1794,19 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 			if (!bConnected)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[Weaver] TryCreateConnection failed: %s.%s -> %s.%s"),
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver] TryCreateConnection FAILED: %s.%s -> %s.%s"),
 				       *Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver]   FromPin: '%s' {%s}"),
+					*FromPin->PinName.ToString(), *PinTypeToDebugStr(FromPin));
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver]   ToPin:   '%s' {%s}"),
+					*ToPin->PinName.ToString(), *PinTypeToDebugStr(ToPin));
+				UE_LOG(LogTemp, Warning, TEXT("[Weaver]   FromPin linked=%d, ToPin linked=%d"),
+					FromPin->LinkedTo.Num(), ToPin->LinkedTo.Num());
+
 				FString LinkError = FString::Printf(
-					TEXT("link %s.%s -> %s.%s 连接失败（TryCreateConnection 返回 false），请检查引脚名称和类型是否正确。"),
-					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin);
+					TEXT("link %s.%s -> %s.%s 连接失败: FromPin={%s}, ToPin={%s}"),
+					*Link.FromNode, *Link.FromPin, *Link.ToNode, *Link.ToPin,
+					*PinTypeToDebugStr(FromPin), *PinTypeToDebugStr(ToPin));
 				if (!OutError.IsEmpty()) OutError += TEXT("\n");
 				OutError += LinkError;
 				continue;
