@@ -742,7 +742,10 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 	{
 		for (const FWeaveNodeDecl& NodeDecl : AST.Nodes)
 		{
-			if (NodeDecl.SchemaId == TEXT("event.Actor.UserConstructionScript"))
+			FString RawSchemaId = NodeDecl.SchemaId;
+			if (RawSchemaId.StartsWith(TEXT("\"")) && RawSchemaId.EndsWith(TEXT("\"")) && RawSchemaId.Len() >= 2)
+				RawSchemaId = RawSchemaId.Mid(1, RawSchemaId.Len() - 2);
+			if (RawSchemaId == TEXT("event.Actor.UserConstructionScript"))
 			{
 				FunctionEventNodeId = NodeDecl.NodeId;
 				UE_LOG(LogTemp, Warning, TEXT("[Weaver] 检测到函数图表中的事件节点 %s，将自动转换为 entry 节点"), *NodeDecl.NodeId);
@@ -1005,8 +1008,15 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		UK2Node* NewNode = nullptr;
 
 
+		// 去掉 SchemaId 首尾引号（Generator 对含空格的 SchemaId 会用引号包裹）
+		FString SchemaId = NodeDecl.SchemaId;
+		if (SchemaId.StartsWith(TEXT("\"")) && SchemaId.EndsWith(TEXT("\"")) && SchemaId.Len() >= 2)
+		{
+			SchemaId = SchemaId.Mid(1, SchemaId.Len() - 2);
+		}
+
 		TArray<FString> Parts;
-		NodeDecl.SchemaId.ParseIntoArray(Parts, TEXT("."));
+		SchemaId.ParseIntoArray(Parts, TEXT("."));
 
 		if (Parts.Num() < 2)
 		{

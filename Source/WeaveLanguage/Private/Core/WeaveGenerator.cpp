@@ -23,16 +23,22 @@ namespace
 {
 	FString StripUEClassPrefix(const FString& ClassName)
 	{
-		if (ClassName.Len() > 1)
+		FString Result = ClassName;
+		// 去掉 SKEL_ 前缀（蓝图骨架类）
+		if (Result.StartsWith(TEXT("SKEL_")))
 		{
-			const TCHAR First = ClassName[0];
-			const TCHAR Second = ClassName[1];
+			Result = Result.Mid(5);
+		}
+		if (Result.Len() > 1)
+		{
+			const TCHAR First = Result[0];
+			const TCHAR Second = Result[1];
 			if ((First == TEXT('U') || First == TEXT('A')) && FChar::IsUpper(Second))
 			{
-				return ClassName.RightChop(1);
+				return Result.RightChop(1);
 			}
 		}
-		return ClassName;
+		return Result;
 	}
 }
 
