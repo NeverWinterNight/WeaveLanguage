@@ -1324,7 +1324,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		}
 	}
 
-	if (NodesCreated == 0)
+	if (NodesCreated == 0 && AST.Comments.Num() == 0)
 	{
 		OutError = TEXT("No nodes created");
 		return 0;
