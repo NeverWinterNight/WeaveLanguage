@@ -1063,22 +1063,61 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					}
 					else
 					{
-						// ClassName 不是当前蓝图类，视为外部类成员变量
-						ExternalClass = FindClassByShortName(ClassName);
-						if (ExternalClass)
+						// ClassName 不是当前蓝图类名
+						// 先检查该变量是否在 AST.Vars 中声明（即由 Weave 代码创建的 Self 变量）
+						// 这处理了跨蓝图粘贴时源蓝图类名与目标蓝图类名不同的情况
+						bool bDeclaredInAST = false;
+						for (const FWeaveVarDecl& VarDecl : AST.Vars)
 						{
-							bIsExternalVar = true;
+							if (VarDecl.VarName == FunctionName)
+							{
+								bDeclaredInAST = true;
+								break;
+							}
+						}
+
+						if (bDeclaredInAST)
+						{
+							// 变量在 Weave 代码中声明，已由 AddMemberVariable 创建，视为 Self 变量
+							bIsSelfVar = true;
+							UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' declared in AST, treating as self var (source class: %s)"), *FunctionName, *ClassName);
 						}
 						else
 						{
-							// 类未找到，但仍然尝试作为外部变量处理
-							// 先将 ClassName 作为蓝图路径尝试加载
-							UE_LOG(LogTemp, Warning, TEXT("[Weaver] External class not found: %s, trying as self var"), *ClassName);
-							// 回退：检查是否为本蓝图变量（可能 Generator 输出的类名不匹配）
-							if (Blueprint && Blueprint->GeneratedClass)
+							// 再检查 Blueprint->NewVariables（可能目标蓝图已有同名变量）
+							bool bFoundInNewVars = false;
+							for (const FBPVariableDescription& ExistingVar : Blueprint->NewVariables)
 							{
-								FProperty* Prop = Blueprint->GeneratedClass->FindPropertyByName(FName(*FunctionName));
-								bIsSelfVar = (Prop != nullptr);
+								if (ExistingVar.VarName.ToString() == FunctionName)
+								{
+									bFoundInNewVars = true;
+									break;
+								}
+							}
+
+							if (bFoundInNewVars)
+							{
+								bIsSelfVar = true;
+								UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' found in Blueprint->NewVariables, treating as self var"), *FunctionName);
+							}
+							else
+							{
+								// 尝试作为外部类成员变量
+								ExternalClass = FindClassByShortName(ClassName);
+								if (ExternalClass)
+								{
+									bIsExternalVar = true;
+								}
+								else
+								{
+									UE_LOG(LogTemp, Warning, TEXT("[Weaver] External class not found: %s, trying as self var"), *ClassName);
+									// 最后回退：检查 GeneratedClass 的 FProperty
+									if (Blueprint->GeneratedClass)
+									{
+										FProperty* Prop = Blueprint->GeneratedClass->FindPropertyByName(FName(*FunctionName));
+										bIsSelfVar = (Prop != nullptr);
+									}
+								}
 							}
 						}
 					}

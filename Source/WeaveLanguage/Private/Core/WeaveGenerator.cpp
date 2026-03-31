@@ -143,6 +143,8 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 	{
 		if (UK2Node_VariableGet* VarGetNode = Cast<UK2Node_VariableGet>(Node))
 		{
+			// 只为 Self 变量生成 var 声明，外部类变量不需要
+			if (!VarGetNode->VariableReference.IsSelfContext()) continue;
 			FName VarName = VarGetNode->GetVarName();
 			if (UEdGraphPin* ValuePin = VarGetNode->FindPin(VarName, EGPD_Output); ValuePin && !Variables.Contains(
 				VarName.ToString()))
@@ -150,6 +152,7 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 		}
 		else if (UK2Node_VariableSet* VarSetNode = Cast<UK2Node_VariableSet>(Node))
 		{
+			if (!VarSetNode->VariableReference.IsSelfContext()) continue;
 			FName VarName = VarSetNode->GetVarName();
 			if (UEdGraphPin* ValuePin = VarSetNode->FindPin(VarName, EGPD_Input); ValuePin && !Variables.Contains(
 				VarName.ToString()))
