@@ -2516,6 +2516,27 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 		}
 	}
 
+	// 如果找不到目标图表，尝试自动创建同名函数图表
+	if (!TargetGraph && !GraphName.Contains(TEXT("EventGraph")))
+	{
+		UEdGraph* NewFuncGraph = FBlueprintEditorUtils::CreateNewGraph(
+			BP, FName(*GraphName), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+		if (NewFuncGraph)
+		{
+			FBlueprintEditorUtils::AddFunctionGraph<UClass>(BP, NewFuncGraph, true, nullptr);
+			FKismetEditorUtilities::CompileBlueprint(BP);
+			TargetGraph = NewFuncGraph;
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] Auto-created function graph: %s"), *GraphName);
+		}
+	}
+
+	// 回退到默认 EventGraph
+	if (!TargetGraph && BP->UbergraphPages.Num() > 0)
+	{
+		TargetGraph = BP->UbergraphPages[0];
+		UE_LOG(LogTemp, Log, TEXT("[Weaver] Falling back to default UbergraphPage: %s"), *TargetGraph->GetName());
+	}
+
 	if (!TargetGraph)
 	{
 		OutError = TEXT("Graph not found");
